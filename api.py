@@ -14,21 +14,24 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.briefing import build_briefing, slug
 
 OUTPUT = Path("output")
 app = FastAPI(title="The Liquid Briefing")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Only the local React dev server may call this. Before any public link: add a login or a rate limit first,
+# otherwise anyone could spend the event credits.
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+                   allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 
 
 class Profile(BaseModel):
-    name: str = "Listener"
+    name: str = Field("Listener", max_length=60)
     language: str = "en"
     seconds: int = 90
-    depth: str = "medium"
-    description: str
+    depth: str = Field("medium", max_length=80)
+    description: str = Field(..., min_length=10, max_length=1000)
 
 
 class Request(BaseModel):

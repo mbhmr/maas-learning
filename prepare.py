@@ -63,7 +63,13 @@ def main():
             print(f"  {s['rank']:>3}. {s['title'][:80]}  [{len(s['article_ids'])}]")
         return
 
-    stories, info = merge_and_rate(stories, articles, ask_json, args.end)
+    try:
+        stories, info = merge_and_rate(stories, articles, ask_json, args.end)
+    except Exception as e:  # without the merge the day still works, just with more, smaller stories
+        print(f"merge call failed ({e}), keeping the grouping by code")
+        info = {"merges": 0, "refused": [], "error": str(e)[:300]}
+        for s in stories:
+            s.update(importance=2, topic="other", latest=max(articles[i]["date"] for i in s["article_ids"]))
     print(f"merged {info['merges']} stories into others, refused {len(info['refused'])} merges without a shared name"
           f" -> {len(stories)} stories")
     chosen = pick(stories)

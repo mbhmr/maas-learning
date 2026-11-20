@@ -14,6 +14,9 @@ from .llm import ENV, log_usage
 
 # "George", a premade ElevenLabs voice. Override with ELEVENLABS_VOICE_ID.
 DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"
+VOICE_SETTINGS = {"eleven_v3": {"stability": 0.0, "similarity_boost": 0.75},
+                  "other": {"stability": 0.25, "similarity_boost": 0.75, "style": 0.85, "use_speaker_boost": True,
+                            "speed": 1.12}}
 
 # Only for the ear: the transcript keeps the written form, the voice gets the spoken one.
 SPOKEN = {
@@ -41,7 +44,7 @@ def speak(parts, mp3_path, lang="en"):
     if not key:
         raise RuntimeError("ELEVENLABS_API_KEY is missing in .env.")
     voice = os.getenv("ELEVENLABS_VOICE_ID") or DEFAULT_VOICE
-    model = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+    model = os.getenv("ELEVENLABS_MODEL", "eleven_v3")
     spoken = [spoken_form(p, lang) for p in parts]
     text, spans, pos = "", [], 0
     for i, p in enumerate(spoken):
@@ -54,11 +57,9 @@ def speak(parts, mp3_path, lang="en"):
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps",
         params={"output_format": "mp3_44100_128"},
         headers={"xi-api-key": key},
-        # Very energetic delivery (team decision 20.11.): low stability = lively intonation, high style, a bit faster.
-        # Only the VOICE is excited; the words stay neutral and checked, so no claim sounds bigger than its source.
-        json={"text": text, "model_id": model,
-              "voice_settings": {"stability": 0.25, "similarity_boost": 0.75, "style": 0.85,
-                                 "use_speaker_boost": True, "speed": 1.12}},
+        # Very energetic delivery (Matthias, 20.11.): eleven_v3 is the most expressive model, stability 0.0 is its
+        # "creative" setting. The words stay checked, so no claim sounds bigger than its source.
+        json={"text": text, "model_id": model, "voice_settings": VOICE_SETTINGS.get(model, VOICE_SETTINGS["other"])},
         timeout=180,
     )
     if r.status_code != 200:

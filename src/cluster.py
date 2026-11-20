@@ -26,10 +26,10 @@ LEAD = 1000
 TRANSLATION_MINUTES = 15
 # Buy/sell pitches are dropped up front: the briefing must not give investment advice.
 ADVICE = re.compile(r"\b(stocks? to buy|buy now|should you (invest|buy)|investing radar|strong buy|top-ranked|"
-                    r"(a|good) (stock to )?buy\b|buy or sell|time to buy|worth buying)", re.I)
+                    r"(a|good) (stock to )?buy\b|buy or sell|time to buy|worth buying|'?buy'? rating|bull of the day|bear of the day)", re.I)
 # Round-ups cover many events at once; mixing them into one story would glue unrelated news together.
 ROUNDUP = re.compile(r"\b(evening digest|morning (digest|brief)|things to know|what to watch|week ahead|"
-                     r"weekly (recap|wrap)|market wrap|stocks? to watch|abendbericht|morgenbericht|wochenausblick|avondbericht|ochtendbericht)\b", re.I)
+                     r"weekly (recap|wrap)|market wrap|stocks? to watch|abendbericht|morgenbericht|wochenausblick|avondbericht|ochtendbericht|avondoverzicht|ochtendoverzicht|abend-update|morgen-update)\b", re.I)
 PRIORITY_SECTIONS = {"fed", "ecb", "boj", "boe", "inflation", "central banks", "economy", "united states",
                      "stock market", "earnings", "world", "politics", "business"}
 
@@ -154,7 +154,7 @@ MERGE_SYSTEM = """You are the editor of a financial newsroom. You get a list of 
 2. importance: for EVERY id, a score from 5 (moves markets or affects many people: central bank decisions,
    major data releases, very large companies) to 1 (gossip, minor single-company notes), and one topic."""
 
-_NAME = re.compile(r"\b[A-Z][a-zA-Z&\-]{2,}\b")
+_NAME = re.compile(r"\b[A-Z][a-zA-Z&\-]{2,}\b(?!')")  # not "Don" from "Don't"
 _NOT_NAME = {"The", "Why", "What", "How", "Is", "Are", "Can", "Will", "This", "These", "After", "Before", "Here",
              "New", "Stock", "Stocks", "Shares", "Price", "Today", "US", "Its", "From", "With", "For", "And"}
 
@@ -162,13 +162,28 @@ _NOT_NAME = {"The", "Why", "What", "How", "Is", "Are", "Can", "Will", "This", "T
 COMMON = set("""his her him she who was did you now just out over says said claims calls reveals report reports
 warns amid about could down not while during former family man woman after before into first last next big top
 why what how when where new could should would year years day days week weeks time back""".split())
-MAX_GROUP = 40        # the model once proposed one group of 349 unrelated stories: refuse such groups outright
 RARE_SHARE = 0.05     # a shared name only counts if at most 5 % of stories carry it ("Huang" yes, "Trump" no)
 
 
 def _names(story):
     words = {w.lower() for h in story["all_headlines"] for w in _NAME.findall(h) if w not in _NOT_NAME}
     return words - STOP - COMMON
+
+
+def proper_names(articles):
+    """Words that are written with a capital letter in running text too: 'Huang', 'FAA', not 'Stop' or 'Know'.
+
+    Headlines are in Title Case, so a capital letter there proves nothing; the article bodies decide.
+    """
+    cap, low, first = Counter(), Counter(), Counter()
+    for a in articles:
+        # mid-sentence words only; `nxt` tells whether another capitalised word follows ("Donald Trump")
+        for w, nxt in re.findall(r"(?<=[a-z,;] )([A-Za-z][a-zA-Z&\-]{2,})(?= ([A-Z])?)", a["text"]):
+            (cap if w[0].isupper() else low)[w.lower()] += 1
+            if w[0].isupper() and nxt:
+                first[w.lower()] += 1
+    # first names ("Donald", "Robert") glue unrelated people together: only surnames and other names count
+    return {w for w, c in cap.items() if c >= 2 and c >= 4 * low[w] and first[w] < 0.6 * c}
 
 
 def merge_and_rate(stories, articles, ask_json, end_day):
@@ -179,24 +194,24 @@ def merge_and_rate(stories, articles, ask_json, end_day):
     out = ask_json("merge", MERGE_SYSTEM, listing, MERGE_SCHEMA, max_tokens=20000)
     by_id = {s["id"]: s for s in stories}
 
-    # names are fixed BEFORE merging, so a growing story cannot collect ever more names and swallow everything
-    names = {s["id"]: _names(s) for s in stories}
-    df = Counter(n for ns in names.values() for n in ns)
+    # names come from the story TITLE and are fixed before merging, so a growing story cannot collect ever more
+    # names and swallow everything ("outage", "flight" in one of 23 headlines once pulled in a bank outage)
+    proper = proper_names([articles[i] for s in stories for i in s["article_ids"]])
+    names = {s["id"]: _names({"all_headlines": [s["title"]]}) & proper for s in stories}
+    df = Counter(n for s in stories for n in _names(s))  # rarity over ALL headlines: "Trump", "Nvidia" are common
     rare = {n for n, c in df.items() if c <= max(3, RARE_SHARE * len(stories))}
     merged_into, merges, refused = {}, 0, []
     for group in out["merge"]:
         ids = [i for i in dict.fromkeys(group) if i in by_id and i not in merged_into]
         if len(ids) < 2:
             continue
-        if len(ids) > MAX_GROUP:
-            refused.append((f"group of {len(ids)} stories", by_id[ids[0]]["title"]))
-            continue
-        head = max(ids, key=lambda i: len(by_id[i]["article_ids"]))
-        for i in ids:
-            if i == head or head in merged_into:
-                continue
-            if not names[i] & names[head] & rare:
-                refused.append((by_id[i]["title"], by_id[head]["title"]))
+        # split the proposal by code: biggest story first, every other story joins the first seed whose TITLE
+        # shares a rare proper name with its own title, otherwise it stays on its own
+        seeds = []
+        for i in sorted(ids, key=lambda i: -len(by_id[i]["article_ids"])):
+            head = next((h for h in seeds if names[i] & names[h] & rare), None)
+            if head is None:
+                seeds.append(i)
                 continue
             h, o = by_id[head], by_id[i]
             h["article_ids"] += o["article_ids"]
@@ -204,6 +219,9 @@ def merge_and_rate(stories, articles, ask_json, end_day):
             h["translations"].update(o["translations"])
             merged_into[i] = head
             merges += 1
+        if len(seeds) > 1:
+            refused.append((f"{len(seeds) - 1} of {len(ids)} proposed stories kept apart, no shared name",
+                            by_id[seeds[0]]["title"]))
 
     rating = {r["id"]: r for r in out["importance"] if r["id"] in by_id}
     end = datetime.fromisoformat(end_day + "T23:59:59+00:00")
