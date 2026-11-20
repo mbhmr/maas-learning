@@ -11,7 +11,7 @@ Short fixed lines disclose the synthetic voice and rule out investment advice; t
 are written by the model, checked by code (no numbers, no advice, short) and fall back to fixed text.
 """
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from .facts import numbers
 from .lessons import prompt_block
@@ -58,6 +58,24 @@ SELECT_SCHEMA = {
 }
 
 
+LEAD_IMPORTANCE = 5  # the editor's top grade: the news of the day in its topic
+
+
+def with_leads(chosen, pool, k):
+    """The selection model sometimes skips the lead story of a topic the listener does hear (Nvidia CEO exit for a
+    tech-stock investor: measured on 18 Nov, eval/benchmark.py must_hear). A story graded 5/5 whose topic one of the
+    chosen stories shares goes in, at most two, in place of the lowest-ranked picks; then rank order for those."""
+    topics = {s.get("topic") for s in chosen}
+    leads = [s for s in pool if s.get("importance") == LEAD_IMPORTANCE and s.get("topic") in topics
+             and s not in chosen][:2]
+    if not leads:
+        return chosen
+    keep = sorted(chosen, key=lambda s: s.get("rank", 10**6))[:max(0, k - len(leads))]
+    order = {s["id"]: n for n, s in enumerate(chosen)}
+    kept = sorted(keep, key=lambda s: order[s["id"]])
+    return sorted(leads, key=lambda s: s.get("rank", 10**6)) + kept  # the lead story of the day first
+
+
 def select_stories(profile, stories, facts):
     """Returns (stories in listening order, interests nothing covers)."""
     k = max(2, round(profile["seconds"] / SECONDS_PER_STORY))
@@ -75,6 +93,7 @@ interests that no story covers, list those interests (in {LANG_NAME[profile['lan
     chosen = [by_id[i] for i in dict.fromkeys(out["story_ids"]) if i in by_id][:k]
     if not chosen:
         chosen = pool[:k]  # never an empty briefing: fall back to the top stories
+    chosen = with_leads(chosen, pool, k)
     # free model text goes into speech here, so only short plain topic names pass ("Tesla", "Solarenergie")
     # "nothing in our sources" must be true for the whole day, not only for the stories picked: a topic word that
     # appears in any story title of the day is not missing, the line would be wrong
@@ -135,6 +154,9 @@ def system_prompt(profile, day=None):
     sign_off = (f"- sign_off: at most {hw} words, a warm goodbye in the same spirit, using the same name for the listener as the greeting. No numbers, no facts, no advice."
                 if profile["seconds"] >= NO_SIGN_OFF_SECONDS else "- sign_off: empty string (too short for one).")
     published = f" The briefing is published on {day}." if day else ""
+    if profile.get("days") and profile["days"] > 1:  # "the week so far": a look back, every story with its date
+        published += (f" It covers the last {profile['days']} days of news: a review of those days, the most "
+                      "important story first whatever its day, and every claim says its date.")
     return f"""You write a spoken radio news briefing in {LANG_NAME[lang]} for this listener:
 {profile['description']}
 Depth: {profile['depth']}.{published}
@@ -256,6 +278,16 @@ def _day(iso):
     return f"{int(d)} {MONTHS_EN[int(m) - 1]} {y}"
 
 
+def in_span(stories, facts, days):
+    """Only stories whose newest article falls in the last `days` days of the news (1 = the last day only).
+    None or 0: everything prepare.py put in the window (13 to 18 Nov for the demo day)."""
+    end = news_day(facts)
+    if not days or not end:
+        return stories
+    first = (date.fromisoformat(end[:10]) - timedelta(days=days - 1)).isoformat()
+    return [s for s in stories if (s.get("latest") or "")[:10] >= first]
+
+
 def write_script(profile, stories, facts):
     """Returns (lines, dropped, spoken_stories, frame).
 
@@ -265,6 +297,7 @@ def write_script(profile, stories, facts):
     """
     lang = profile["language"]
     facts = current_facts(facts)  # stale facts are never offered, so they cannot be cited either
+    stories = in_span(stories, facts, profile.get("days"))
     chosen, missing = select_stories(profile, stories, facts)
     day = news_day(facts)
     out = ask_json("script", system_prompt(profile, day and _day(day)), facts_prompt(chosen, facts, day), SCHEMA,
@@ -292,8 +325,9 @@ def write_script(profile, stories, facts):
     kept, twice = dedupe(kept, facts, profile["language"])
     dropped += twice
     reserved = sum(len(t.split()) for t in frame.values())
-    chosen, kept, more_dropped = top_up(profile, stories, facts, day, chosen, kept, reserved)
-    dropped += more_dropped
+    for _ in range(TOP_UP_ROUNDS):  # each round adds stories only while the briefing is under 80 % of its length
+        chosen, kept, more_dropped = top_up(profile, stories, facts, day, chosen, kept, reserved)
+        dropped += more_dropped
     kept, cut = fit_length(kept, profile, reserved)
     kept, orphans = arrange(kept, facts)
     if missing:
@@ -373,6 +407,8 @@ UNNAMED_START = re.compile(r"^(it|its|they|their|he|she|his|her|this|these|that|
                            # "The Bank of England", "This week's CPI" do name their subject
                            r"(?!\s+of\b|\s+week|\s+month|\s+year|\s+quarter|\s+morning)", re.I)
 TOP_UP_BELOW = 0.8  # a briefing under 80 % of its requested length gets one more round of stories
+TOP_UP_ROUNDS = 2   # one round left 95 of 324 editions under 80 % (eval/benchmark.py, 21.11.): the checker blocks
+                    # lines of the new stories too
 
 
 def top_up(profile, stories, facts, day, chosen, kept, reserved):
@@ -491,8 +527,10 @@ def fit_length(lines, profile, reserved=None):
     kept, used = [], 0
     for n, line in enumerate(lines):
         used += len(line["text"].split())
-        if used > budget:  # cut the END, never a line in the middle of a story
+        if used > budget and kept:  # cut the END, never a line in the middle of a story
             return kept, [{**x, "why": "over the requested length"} for x in lines[n:]]
+        if used > budget:  # the first line alone is over: a few seconds long beats an empty briefing (nl 30 s, 21.11.)
+            return [line], [{**x, "why": "over the requested length"} for x in lines[n + 1:]]
         kept.append(line)
     return kept, []
 
@@ -576,7 +614,11 @@ _SCALE = {  # (English word or abbreviation after a digit, local word); case-sen
 _SINGULAR = {"de": [(r"(?<![\d.,])\b1 Milliarden\b", "1 Milliarde"), (r"(?<![\d.,])\b1 Millionen\b", "1 Million"),
                     (r"(?<![\d.,])\b1 Billionen\b", "1 Billion")]}
 # English words that give away an untranslated German or Dutch line ("US-Producer-Prices rose im Oktober").
-ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares)\b"
+# Also a whole untranslated sentence (found by eval/benchmark.py in Dutch editions, 21.11.): English function words
+# that German and Dutch never use ("with no evidence it is", "could still access their accounts").
+ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares|"
+                              r"the(?!\s+(?-i:[A-Z]))|with|could|their|because|which|would|after|about|from|this|"
+                              r"those)\b"  # "The Gentlemen" is a name, "these" is Dutch for thesis
                               r"|\bon \d{1,2} [a-z]", re.I)
 
 

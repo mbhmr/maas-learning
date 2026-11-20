@@ -668,3 +668,40 @@ def test_title_follows_facts_when_headline_is_days_older():
     assert title_from_facts(story, facts, arts) == "Nasdaq rises"
     facts = [{"story_id": "s6", "sources": [{"article_id": "old"}]}]
     assert title_from_facts(story, facts, arts) == "Nasdaq opens 1.5% lower"
+
+
+def test_lead_story_of_a_heard_topic_goes_in():
+    from src.script import with_leads
+    s = lambda i, rank, topic, imp=3: {"id": i, "rank": rank, "topic": topic, "importance": imp}
+    lead, tech, crypto, other = s("a", 1, "tech", 5), s("b", 7, "tech"), s("c", 10, "crypto"), s("d", 21, "other", 5)
+    got = with_leads([tech, crypto], [lead, tech, crypto, other], k=2)
+    assert [x["id"] for x in got] == ["a", "b"]  # lead first, the lowest-ranked pick makes room
+    assert with_leads([crypto], [lead, crypto], k=2) == [crypto]  # topic not heard: no lead forced in
+    assert with_leads([lead, tech], [lead, tech], k=2) == [lead, tech]
+
+
+def test_untranslated_english_sentence_in_dutch_line_is_caught():
+    from src.script import ENGLISH_GIVEAWAY as E
+    assert E.search("Chase maintained that customers could still access their accounts and money.")
+    assert E.search("Nvidia zei dat de omzet in the fourth quarter naar 130 miljard dollar gaat.")
+    assert not E.search("NVIDIA stond op 18 november op de afpersingssite van The Gentlemen.")
+    assert not E.search("Die waarschuwing houdt de IPO-these scherp in beeld.")
+
+
+def test_fit_length_never_returns_an_empty_briefing():
+    from src.script import fit_length
+    long = {"text": " ".join(["word"] * 80), "fact_ids": ["f1"], "kind": "claim"}
+    kept, cut = fit_length([long, dict(long)], {"language": "nl", "seconds": 30}, reserved=10)
+    assert kept == [long] and len(cut) == 1
+
+
+def test_in_span_keeps_only_the_last_days():
+    from src.script import in_span, system_prompt
+    facts = [{"id": "f", "story_id": "a", "sources": [{"date": "2026-11-18T09:00:00+00:00"}]}]
+    stories = [{"id": "a", "latest": "2026-11-18T09:00:00+00:00"}, {"id": "b", "latest": "2026-11-16T09:00:00+00:00"},
+               {"id": "c", "latest": "2026-11-13T09:00:00+00:00"}]
+    assert [s["id"] for s in in_span(stories, facts, 1)] == ["a"]
+    assert [s["id"] for s in in_span(stories, facts, 3)] == ["a", "b"]
+    assert in_span(stories, facts, None) == stories
+    week = {"name": "x", "language": "en", "seconds": 90, "depth": "medium", "description": "y", "days": 6}
+    assert "last 6 days" in system_prompt(week) and "last 6 days" not in system_prompt({**week, "days": None})

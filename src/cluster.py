@@ -227,6 +227,40 @@ def rank_score(story, n_articles, fresh):
                  + (4 if story["topic"] in MACRO_TOPICS else 0) - (6 if SPECULATION.search(story["title"]) else 0), 2)
 
 
+def explain_rank(story, end_day):
+    """Why a story has its rank: the parts of rank_score, recomputed from the fields stories.json keeps.
+
+    For the newsroom view: {"score", "parts": [{"label", "points"}], "ranked": end of the window}.
+    `end_day` is the last day of the window (output/<end_day>/). The parts add up to the stored score.
+    """
+    end = datetime.fromisoformat(end_day + "T23:59:59+00:00")
+    fresh = freshness(datetime.fromisoformat(story["latest"]), end) if story.get("latest") else 0.0
+    n_articles, outlets = len(story["article_ids"]), len(story.get("publishers", []))
+    hours = (end - datetime.fromisoformat(story["latest"])).total_seconds() / 3600 if story.get("latest") else None
+    parts = [
+        {"label": f"editor importance {story.get('importance')}/5 (x5)", "points": 5 * story.get("importance", 0)},
+        {"label": f"{outlets} outlet{'s' if outlets != 1 else ''} (x2)", "points": 2 * outlets},
+        {"label": f"{n_articles} article{'s' if n_articles != 1 else ''} (log2)", "points": round(math.log2(1 + n_articles), 2)},
+        {"label": f"freshness, newest article {hours:.0f} h before the end of the window" if hours is not None
+         else "freshness", "points": round(fresh, 2)},
+    ]
+    if story.get("topic") in MACRO_TOPICS:
+        parts.append({"label": "central banks, macro or currencies", "points": 4})
+    # ranked on the headline it had then: prepare.py may give the story a newer headline afterwards
+    if SPECULATION.search(story.get("ranked_title", story["title"])):
+        parts.append({"label": "headline is a question or forecast", "points": -6})
+    total = round(sum(p["points"] for p in parts), 2)
+    if "ranked_title" not in story and "score" in story and abs(story["score"] - total) > 0.05:
+        # older stories.json without ranked_title: the only part that can differ is the headline penalty
+        has = any(p["points"] == -6 for p in parts)
+        parts = [p for p in parts if p["points"] != -6] if has else             parts + [{"label": "headline at ranking time was a question or forecast", "points": -6}]
+        total = round(sum(p["points"] for p in parts), 2)
+    if "score" in story and abs(story["score"] - total) > 0.05:  # prepared by an older ranking formula: say so
+        return {"score": story["score"], "parts": [], "ranked": end_day,
+                "note": "ranked by an older version of the ranking, parts not available"}
+    return {"score": total, "parts": parts, "ranked": end_day}
+
+
 def freshness(latest, end):
     """The briefing is for the morning after `end`: news of the last 24 to 48 hours counts clearly more.
 
@@ -294,6 +328,7 @@ def merge_and_rate(stories, articles, ask_json, end_day):
         s["importance"], s["topic"] = max(1, min(5, r["score"])), r["topic"]
         s["latest"] = max(a["date"] for a in members)
         s["score"] = rank_score(s, len(members), freshness(max(_ts(a) for a in members), end))
+        s["ranked_title"] = s["title"]  # explain_rank() needs the headline the score was computed on
         result.append(s)
     result.sort(key=lambda s: -s["score"])
     for n, s in enumerate(result, 1):

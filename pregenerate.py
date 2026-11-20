@@ -41,6 +41,7 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--tier", default="flex", choices=("flex", "default"))
     ap.add_argument("--live", action="store_true", help="write into output/<day>/editions, which the API serves")
+    ap.add_argument("--name", default="", help="a name for this run's folder and report, e.g. after-fix")
     args = ap.parse_args(argv)
 
     os.environ["OPENAI_SERVICE_TIER"] = "" if args.tier == "default" else args.tier
@@ -53,7 +54,7 @@ def main(argv=None):
     if args.live:
         folder = source
     else:  # a separate day folder, so a measurement never touches what the demo serves
-        folder = OUTPUT / "pregen" / f"{args.day}-{args.tier}"
+        folder = OUTPUT / "pregen" / f"{args.day}-{args.tier}{'-' + args.name if args.name else ''}"
         folder.mkdir(parents=True, exist_ok=True)
         for name in ("stories.json", "facts.json"):
             shutil.copy2(source / name, folder / name)
@@ -117,7 +118,7 @@ def main(argv=None):
         "voice_usd_if_all_heard": round(chars / 1000 * VOICE_USD_PER_1000_CHARS, 2),
         "per_edition": {k: {**d, "usd": round(spent.get(k, {}).get("usd", 0), 5)} for k, d in sorted(done.items())},
     }
-    suffix = "" if args.tier == "flex" else f"-{args.tier}"
+    suffix = ("" if args.tier == "flex" else f"-{args.tier}") + (f"-{args.name}" if args.name else "")
     out = OUTPUT / f"pregen-{args.day}{('-' + args.only) if args.only else ''}{suffix}.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in report.items() if k != "per_edition"}, indent=2))

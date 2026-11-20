@@ -328,3 +328,16 @@ def test_rank_score_puts_data_release_above_speculation():
              "title": "Brent crude price analysis: will oil crash below $90?"}
     assert rank_score(data, 3, 1.0) > rank_score(guess, 6, 3.0)
 
+
+
+def test_explain_rank_parts_add_up_to_the_score():
+    from src.cluster import explain_rank, freshness, rank_score
+    from datetime import datetime
+    s = {"title": "Fed raises rates", "ranked_title": "Will the Fed raise rates?", "importance": 4,
+         "publishers": ["A", "B"], "article_ids": ["1", "2", "3"], "topic": "central banks and macro",
+         "latest": "2026-11-18T10:00:00+00:00"}
+    end = datetime.fromisoformat("2026-11-18T23:59:59+00:00")
+    s["score"] = rank_score({**s, "title": s["ranked_title"]}, 3, freshness(datetime.fromisoformat(s["latest"]), end))
+    got = explain_rank(s, "2026-11-18")
+    assert abs(got["score"] - s["score"]) < 0.05 and any(p["points"] == -6 for p in got["parts"])
+    assert explain_rank({**s, "score": 1.0}, "2026-11-18")["parts"] == []  # older formula: no made-up parts
