@@ -300,7 +300,7 @@ def write_script(profile, stories, facts):
 
 REPAIRABLE = ("content check", "numbers not in sources", "too long for the ear", "starts with a bare number",
               "superlative not in sources", "English words", "context line with a figure",
-              "person not in its quotes", "time qualifier not in its quotes")  # a rewrite can drop the name or the qualifier
+              "person not in its quotes", "time qualifier not in its quotes", "relative date")  # a rewrite can drop the name or the qualifier
 REPAIR_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["lines"],
                  "properties": {"lines": SCHEMA["properties"]["lines"]}}
 
