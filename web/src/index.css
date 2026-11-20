@@ -1,52 +1,58 @@
-/* Light theme: flat, calm surfaces, one accent used sparingly */
+/* One accent (ink blue), everything else paper and ink. No shadows, no gradients. */
 :root {
-  --bg: #fafafa;
+  --bg: #faf9f7;
   --surface: #ffffff;
-  --surface-2: #f2f2f4;
-  --surface-solid: #ffffff;
-  --ink: #0b0b0e;
-  --muted: #6b6c76;
-  --faint: #a3a4ad;
-  --line: rgba(10, 10, 20, .09);
-  --accent: #5b4bff;
+  --surface-2: #f2f1ee;
+  --ink: #1b1c1f;
+  --muted: #5c5e65;
+  --faint: #686a70;
+  --line: #dfddd8;
+  --accent: #24467a;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(91, 75, 255, .08);
-  --grad: linear-gradient(120deg, #6d5cff 0%, #0891b2 100%);
-  --ok: #0f8a5f;
-  --ok-soft: rgba(15, 138, 95, .09);
-  --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, .09);
-  --mark: rgba(91, 75, 255, .16);
-  --shadow: 0 1px 2px rgba(10, 10, 20, .04);
+  --accent-soft: rgba(36, 70, 122, .07);
+  --mark: rgba(36, 70, 122, .14);
+  --bad: #9b3328;
+  --scrim: rgba(20, 20, 24, .35);
   color-scheme: light;
+
+  /* two fonts: serif for what you read, system sans for what you click */
+  --f-read: "Sitka Text", Cambria, Constantia, "Iowan Old Style", Charter, Georgia, serif;
+  --f-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* one base size, one step; every font size in the app is one of these six */
+  --t-text: 17px;
+  --step: 1.125;
+  --t-label: calc(var(--t-text) / var(--step) / var(--step));                          /* ~13.4px */
+  --t-ui: calc(var(--t-text) / var(--step));                                           /* ~15.1px */
+  --t-title-s: calc(var(--t-text) * var(--step));                                      /* ~19.1px */
+  --t-title-m: calc(var(--t-text) * var(--step) * var(--step));                        /* ~21.5px */
+  --t-title-l: calc(var(--t-text) * var(--step) * var(--step) * var(--step) * var(--step)); /* ~27.2px */
+
+  --r-card: 12px;
+  --r-btn: 8px;
 }
-/* Dark theme: system setting, unless the page is forced to light */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #09090b; --surface: #111114; --surface-2: #1a1a1f; --surface-solid: #111114;
-    --ink: #ededf0; --muted: #8d8e98; --faint: #5c5d66; --line: rgba(255, 255, 255, .08);
-    --accent: #8b7bff; --accent-soft: rgba(139, 123, 255, .1); --grad: linear-gradient(120deg, #8b7bff 0%, #22d3ee 100%);
-    --ok: #3ccf91; --ok-soft: rgba(60, 207, 145, .1); --warn: #f5b13d; --warn-soft: rgba(245, 177, 61, .1);
-    --mark: rgba(139, 123, 255, .28); --shadow: none; color-scheme: dark;
+    --bg: #151618; --surface: #1c1d20; --surface-2: #25262a; --ink: #e8e6e1; --muted: #a4a39f; --faint: #9a9b9f;
+    --line: #313236; --accent: #93b2e4; --accent-ink: #10141b; --accent-soft: rgba(147, 178, 228, .09);
+    --mark: rgba(147, 178, 228, .2); --bad: #e58f80; --scrim: rgba(0, 0, 0, .5); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #09090b; --surface: #111114; --surface-2: #1a1a1f; --surface-solid: #111114;
-  --ink: #ededf0; --muted: #8d8e98; --faint: #5c5d66; --line: rgba(255, 255, 255, .08);
-  --accent: #8b7bff; --accent-soft: rgba(139, 123, 255, .1); --grad: linear-gradient(120deg, #8b7bff 0%, #22d3ee 100%);
-  --ok: #3ccf91; --ok-soft: rgba(60, 207, 145, .1); --warn: #f5b13d; --warn-soft: rgba(245, 177, 61, .1);
-  --mark: rgba(139, 123, 255, .28); --shadow: none; color-scheme: dark;
+  --bg: #151618; --surface: #1c1d20; --surface-2: #25262a; --ink: #e8e6e1; --muted: #a4a39f; --faint: #9a9b9f;
+  --line: #313236; --accent: #93b2e4; --accent-ink: #10141b; --accent-soft: rgba(147, 178, 228, .09);
+  --mark: rgba(147, 178, 228, .2); --bad: #e58f80; --scrim: rgba(0, 0, 0, .5); color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-height: 100%; }
 body {
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 Geist, Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  letter-spacing: -.005em;
+  font: var(--t-text)/1.6 var(--f-read);
+  font-variant-numeric: lining-nums;
   -webkit-font-smoothing: antialiased;
 }
-button, input, select, textarea { font: inherit; color: inherit; }
+button, input, select, textarea { font: var(--t-ui)/1.4 var(--f-ui); color: inherit; }
 a { color: inherit; }
 ::selection { background: var(--mark); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

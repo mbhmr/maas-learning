@@ -43,10 +43,11 @@ const STEPS = ['Picking the stories for this listener', 'Writing the script from
 const fmt = (s) => (s == null || isNaN(s) ? '0:00' : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`)
 // "1 outlet", "3 outlets": numbers with the right plural everywhere in the UI
 const pl = (n, one, many = one + 's') => `${Number(n).toLocaleString('en-US')} ${Number(n) === 1 ? one : many}`
-const day = (d) => (d ? new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
+const day = (d) => (d ? new Date(String(d).slice(0, 10) + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
 // cut for length, an orphaned context line or a greeting without the name: not a truth problem, not counted as blocked
-const notChecker = (why) => /^(over the requested|context for a story whose news|greeting does not call)/.test(String(why))
+const notChecker = (why) => /^(over the requested|too long for the ear|context for a story whose news|greeting does not call)/.test(String(why))
+const isRetry = (why) => /^rewrite blocked/.test(String(why))
 
 async function api(path, body) {
   const r = await fetch(path, body ? {
@@ -61,6 +62,22 @@ async function api(path, body) {
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
   }
   return r.json()
+}
+
+/* Section header: small label, a thin rule to the right edge, an optional count. */
+function Head({ children, count, as = 'h2', className = '' }) {
+  const Tag = as
+  return (
+    <Tag className={`sect ${className}`}>
+      <span>{children}</span><i aria-hidden />{count != null && count !== '' && <small>{count}</small>}
+    </Tag>
+  )
+}
+
+const THEME_ICON = {
+  dark: <path d="M14.5 3.5a7 7 0 1 0 6 10.5 6 6 0 0 1-6-10.5z" />,
+  light: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" /></>,
+  '': <><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 0 1 0 16z" className="fill" /></>,
 }
 
 /* The quote with the stated value highlighted, so the eye finds the number at once. */
@@ -100,13 +117,13 @@ function SourceCard({ s, lang }) {
         <a className="srclink" href={s.evidenceUrl} target="_blank" rel="noreferrer" title="Opens the article with this quote highlighted">Open source ↗</a>
         {state !== 'none' && (
           <button className="ghost small" onClick={listen} disabled={state === 'loading'} title="Hear the quote read aloud">
-            {state === 'loading' ? 'Loading…' : '▶ Quote'}
+            {state === 'loading' ? 'Loading…' : 'Hear quote'}
           </button>
         )}
       </footer>
       {Object.keys(s.translations || {}).length > 0 && (
         <p className="translations">Also in {Object.entries(s.translations).map(([l, t], n) => (
-          <a key={l} href={t.url} target="_blank" rel="noreferrer">{n ? ', ' : ''}{String(l).toUpperCase()}</a>))}
+          <span key={l}>{n ? ', ' : ''}<a href={t.url} target="_blank" rel="noreferrer">{String(l).toUpperCase()}</a></span>))}
         </p>
       )}
     </article>
@@ -116,18 +133,17 @@ function SourceCard({ s, lang }) {
 function Evidence({ claim, mode, progress, onFollow, lang, onClose }) {
   if (!claim) return (
     <div className="evidence empty">
-      <p className="kicker">Evidence</p>
-      <p>Press play. Each sentence's source appears here.</p>
+      <Head>Evidence</Head>
+      <p className="hint">Press play. Each sentence's source appears here.</p>
     </div>
   )
   return (
     <div className={`evidence ${mode}`}>
       <div className="evidence-top">
-        <p className="kicker">
-          {mode === 'live' && <i className="livedot" aria-hidden />}
+        <Head>
+          {mode === 'live' && <b className="livedot" aria-hidden />}
           {mode === 'pinned' ? 'Selected' : mode === 'preview' ? 'Evidence' : 'Now speaking'}
-          {claim.start != null && <span className="at"> · at {fmt(claim.start)}</span>}
-        </p>
+        </Head>
         <div className="evidence-actions">
           {mode === 'pinned' && <button className="ghost small" onClick={onFollow}>Follow audio</button>}
           <button className="ghost small close" onClick={onClose} aria-label="Close">✕</button>
@@ -171,13 +187,12 @@ function Newsroom({ dayId }) {
   return (
     <section className="newsroom">
       <div className="nr-head">
-        <div>
-          <p className="kicker">Newsroom · {data.day}</p>
-          <h2>{pl(articles, 'article')} → {pl(data.stories.length, 'story', 'stories')}</h2>
-          <p className="muted">One event across outlets and languages is one story. The top stories get their facts checked once a day.</p>
-        </div>
-        <label className="toggle"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} /> Only checked stories</label>
+        <h2>{pl(articles, 'article')} → {pl(data.stories.length, 'story', 'stories')}</h2>
+        <p className="muted">One event across outlets and languages is one story. The top stories get their facts checked once a day.</p>
       </div>
+      <Head as="div" count={only ? `${list.length} checked` : day(data.day)}>
+        <label className="toggle"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} /> Only checked stories</label>
+      </Head>
       <ol className="nr-list">
         {list.map(s => (
           <li key={s.id} className={`nr-story ${open === s.id ? 'open' : ''}`}>
@@ -197,7 +212,7 @@ function Newsroom({ dayId }) {
                   <li key={a.id}>
                     <span className="nr-pub">{a.publisher}</span>
                     <a href={a.url} target="_blank" rel="noreferrer">{a.headline}</a>
-                    <small>{a.language ? `${a.language.toUpperCase()}` : ''}{a.translationOf ? ' · translation' : ''} · {String(a.date).slice(0, 16).replace('T', ' ')}</small>
+                    <small>{a.language ? `${a.language.toUpperCase()}` : ''}{a.translationOf ? ' · translation' : ''} · {day(a.date)}</small>
                   </li>
                 ))}
               </ul>
@@ -209,7 +224,7 @@ function Newsroom({ dayId }) {
   )
 }
 
-/* The trust receipt: how this briefing was made, step by step, only from numbers the API returns. */
+/* The trust receipt: one quiet row of numbers, only from what the API returns. Hover or tap explains each. */
 function Receipt({ briefing, claims, stats, blockedOpen, onBlocked }) {
   const [tip, setTip] = useState(null)
   const n = (x) => Number(x).toLocaleString('en-US')
@@ -222,56 +237,46 @@ function Receipt({ briefing, claims, stats, blockedOpen, onBlocked }) {
   const misses = ac?.mismatches?.length || 0
 
   const flow = p ? [
-    has('articlesRead') && { k: 'read', v: p.articlesRead, l: `${w(p.articlesRead, 'article')} grouped`,
-      t: `Newstex articles of the news window, after buy/sell pitches and round-ups were dropped${has('outlets') ? `, from ${n(p.outlets)} outlets` : ''}.` },
+    has('articlesRead') && { k: 'read', v: p.articlesRead, l: w(p.articlesRead, 'article'),
+      t: `Newstex articles of the news window, grouped after buy/sell pitches and round-ups were dropped${has('outlets') ? `, from ${n(p.outlets)} outlets` : ''}.` },
     has('stories') && { k: 'stories', v: p.stories, l: w(p.stories, 'story', 'stories'),
       t: 'Articles about the same event, across outlets and languages, are grouped into one story and ranked.' },
-    has('storiesWithFacts') && { k: 'checked', v: p.storiesWithFacts, l: `${w(p.storiesWithFacts, 'story', 'stories')} fact-mined`,
-      t: 'For the top stories, every fact is pulled out together with the verbatim quote it rests on.' },
-    has('factsChecked') && { k: 'facts', v: p.factsChecked, l: `${w(p.factsChecked, 'fact')} verified`,
-      t: `Value, unit, date and entity of each fact are matched against its quote${has('sourcesRejected') ? `: ${n(p.sourcesRejected)} facts rejected` : ''}.` },
+    has('factsChecked') && { k: 'facts', v: p.factsChecked, l: 'facts checked',
+      t: `From the top ${has('storiesWithFacts') ? n(p.storiesWithFacts) + ' ' : ''}stories, every fact is pulled out with the verbatim quote it rests on, and value, unit, date and entity are matched against that quote${has('sourcesRejected') ? `: ${n(p.sourcesRejected)} facts rejected` : ''}.` },
   ].filter(Boolean) : [
     { k: 'quotes', v: stats.quotes, l: `verified ${w(stats.quotes, 'quote')}`, t: 'The verbatim quotes behind this briefing, each checked against its article.' },
     { k: 'outlets', v: stats.outlets, l: w(stats.outlets, 'outlet'), t: 'The different publishers those quotes come from.' },
   ]
-  flow.push({ k: 'spoken', v: spoken, l: `${w(spoken, 'sentence')} spoken`, final: true,
+  flow.push({ k: 'spoken', v: spoken, l: 'sentences spoken',
     t: 'Only sentences built from verified facts reach the voice, and each one links to its quotes.' })
 
-  const seals = [
-    { k: 'blocked', v: stats.blocked, l: `${w(stats.blocked, 'line')} blocked`, tone: 'warn blocked', click: onBlocked, on: blockedOpen,
+  const checks = [
+    { k: 'blocked', v: stats.blocked, l: 'blocked', click: onBlocked, on: blockedOpen,
       t: 'Lines the model wrote but the checker could not back with a quote. Never spoken. Tap to read them.' },
-    { k: 'bare', v: bare, l: `unsourced ${w(bare, 'figure')}`, tone: bare ? 'warn' : 'ok',
+    { k: 'bare', v: bare, l: 'figures without source', bad: bare > 0,
       t: 'Any spoken sentence with a number must cite a quote that contains that number.' },
-    stats.conflicts > 0 && { k: 'conflict', v: stats.conflicts, l: w(stats.conflicts, 'disagreement') + ' named', tone: 'warn',
+    stats.conflicts > 0 && { k: 'conflict', v: stats.conflicts, l: w(stats.conflicts, 'conflict'),
       t: 'Where outlets report different figures, the briefing says so instead of picking one.' },
-    ac && ac.checked > 0 && { k: 'ear', v: `${ac.ok}/${ac.checked}`, l: `${ac.checked === 1 ? 'line' : 'lines'} with figures re-heard`, tone: ac.ok === ac.checked ? 'ok' : 'warn',
+    ac && ac.checked > 0 && { k: 'ear', v: `${ac.ok}/${ac.checked}`, l: 'heard back', bad: ac.ok !== ac.checked,
       t: `Speech recognition listened to the finished audio: every figure was heard in ${ac.ok} of ${ac.checked} spoken lines with figures${misses ? `, ${misses} flagged` : ''}.` },
   ].filter(Boolean)
 
-  const all = [...flow, ...seals]
-  const active = all.find(s => s.k === tip)
-  const bind = (s) => ({
-    onMouseEnter: () => setTip(s.k), onFocus: () => setTip(s.k),
-    onClick: () => { setTip(s.k); s.click?.() }, 'aria-describedby': tip === s.k ? 'receipt-tip' : undefined,
-  })
+  const active = [...flow, ...checks].find(s => s.k === tip)
+  const item = (s, first) => (
+    <li key={s.k} className={first ? 'split' : ''}>
+      <button className={`fig ${s.bad ? 'bad' : ''} ${s.on ? 'on' : ''} ${tip === s.k ? 'tip' : ''} ${s.click ? 'link' : ''}`}
+        onMouseEnter={() => setTip(s.k)} onFocus={() => setTip(s.k)}
+        onClick={() => { setTip(s.k); s.click?.() }} aria-describedby={tip === s.k ? 'receipt-tip' : undefined}>
+        <b>{typeof s.v === 'number' ? n(s.v) : s.v}</b><span>{s.l}</span>
+      </button>
+    </li>
+  )
   return (
     <section className="receipt" aria-label="How this briefing was made" onMouseLeave={() => setTip(null)}>
-      <ol className="flow">
-        {flow.map(s => (
-          <li key={s.k}>
-            <button className={`step ${s.final ? 'final' : ''} ${tip === s.k ? 'tip' : ''}`} {...bind(s)}>
-              <b>{typeof s.v === 'number' ? n(s.v) : s.v}</b><span>{s.l}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
-      <div className="seals">
-        {seals.map(s => (
-          <button key={s.k} className={`seal ${s.tone} ${s.on ? 'on' : ''} ${tip === s.k ? 'tip' : ''}`} {...bind(s)}>
-            <b>{typeof s.v === 'number' ? n(s.v) : s.v}</b> {s.l}
-          </button>
-        ))}
-      </div>
+      <ul className="figs">
+        {flow.map(s => item(s, false))}
+        {checks.map((s, i) => item(s, i === 0))}
+      </ul>
       {active && <p id="receipt-tip" className="receipt-tip" role="status">{active.t}</p>}
     </section>
   )
@@ -414,7 +419,7 @@ export default function App() {
       claims: claims.filter(c => c.kind === 'claim').length,
       quotes: new Set(src.map(s => s.quote)).size,
       outlets: new Set(src.map(s => s.publisher)).size,
-      blocked: (briefing?.dropped || []).filter(d => !notChecker(d.why)).length,
+      blocked: (briefing?.dropped || []).filter(d => !notChecker(d.why) && !isRetry(d.why)).length,
       conflicts: src.filter(s => s.conflict).length,
     }
   }, [claims, briefing])
@@ -423,27 +428,24 @@ export default function App() {
     <div className="app">
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden>
-            <svg viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#8b7bff" /><stop offset="1" stopColor="#22d3ee" /></linearGradient></defs><circle cx="16" cy="16" r="15" /><path d="M9 19v-6M13 22V10M17 20v-8M21 18v-4" /></svg>
-          </span>
-          <div>
-            <h1>The <em>Liquid</em> Briefing</h1>
-            <p>Audio news. Every sentence sourced.</p>
-          </div>
+          <h1>The Liquid Briefing</h1>
+          <p>Personal audio news. Every figure linked to its source.</p>
         </div>
         <nav className="views" aria-label="View">
           <button className={view === 'briefing' ? 'on' : ''} onClick={() => setView('briefing')}>Briefing</button>
           <button className={view === 'newsroom' ? 'on' : ''} onClick={() => setView('newsroom')}>Newsroom</button>
         </nav>
-        <button className="ghost small" onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? '' : 'dark')}
-          title="Theme">{theme === 'dark' ? '☾ Dark' : theme === 'light' ? '☀ Light' : '◐ Auto'}</button>
+        <button className="ghost icon themebtn" onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? '' : 'dark')}
+          title={`Theme: ${theme || 'auto'} (click to switch)`} aria-label={`Theme: ${theme || 'auto'}`}>
+          <svg viewBox="0 0 24 24" aria-hidden>{THEME_ICON[theme] || THEME_ICON['']}</svg>
+        </button>
       </header>
 
       {view === 'newsroom' ? <main className="wide"><Newsroom dayId={dayId} /></main> : (
       <main className="grid">
         <aside className="left">
           <section className="panel">
-            <p className="kicker">Listener</p>
+            <Head>Listener</Head>
             <div className="presets">
               {PRESETS.map(p => (
                 <button key={p.key} className={`chip ${preset === p.key ? 'on' : ''}`}
@@ -452,7 +454,7 @@ export default function App() {
                 </button>
               ))}
               <button className={`chip wild ${preset === 'custom' ? 'on' : ''}`} onClick={() => setPreset('custom')} disabled={busy}>
-                ✦ Wildcard
+                Wildcard
               </button>
             </div>
             {preset === 'custom' && (
@@ -484,22 +486,22 @@ export default function App() {
                 </label>
                 <label className="toggle"><input type="checkbox" checked={custom.mode === 'edition'}
                   onChange={(e) => setCustom({ ...custom, mode: e.target.checked ? 'edition' : 'personal' })} />
-                  <span title="One recording for everyone with similar interests, only the greeting is personal.">Shared edition, about 18× cheaper at scale</span></label>
+                  <span title="One recording for everyone with similar interests, only the greeting is personal.">Shared edition, about 18× cheaper at 100,000 listeners</span></label>
                 <button className="primary" disabled={busy}>Generate briefing</button>
               </form>
             )}
             {days.length > 1 && (
               <label className="dayselect">News up to
                 <select value={dayId} onChange={(e) => setDayId(e.target.value)}>
-                  {days.map(d => <option key={d}>{d}</option>)}
+                  {days.map(d => <option key={d} value={d}>{day(d)} {String(d).slice(0, 4)}</option>)}
                 </select>
               </label>
             )}
           </section>
 
           {briefing && (
-            <section className="panel">
-              <p className="kicker">Stories</p>
+            <section className="panel story-panel">
+              <Head count={briefing.stories.length}>Stories</Head>
               <ol className="stories">
                 {briefing.stories.map(s => (
                   <li key={s.rank}><span>{s.title}</span><small>{pl(s.articles, 'article')}</small></li>
@@ -520,6 +522,9 @@ export default function App() {
           )}
           {briefing && !busy && (
             <>
+              {preset === 'custom' && briefing.profile?.description !== custom.description && (
+                <p className="muted">Still playing {briefing.profile?.name}. Describe your listener and create the briefing.</p>
+              )}
               <div className="player">
                 <button className="play" onClick={toggle} disabled={!briefing.audioUrl} aria-label={playing || intro ? 'Pause' : 'Play'}>
                   {playing || intro ? <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
@@ -539,7 +544,7 @@ export default function App() {
                   <div className="player-tools">
                     {nowOutlets.length > 0 && (
                       <button className="nowsrc" onClick={() => setSheet(true)}>
-                        <span>✓ {nowOutlets.join(', ')}</span> <u>quote</u>
+                        <span>{nowOutlets.join(', ')}</span> <u>quote</u>
                       </button>
                     )}
                     <button className={`switch ${chime ? 'on' : ''}`} aria-pressed={chime} onClick={toggleChime}
@@ -569,7 +574,7 @@ export default function App() {
                 <button role="tab" aria-selected={tab === 'said'} className={tab === 'said' ? 'on' : ''} onClick={() => setTab('said')}>
                   Transcript</button>
                 <button role="tab" aria-selected={tab === 'cut'} className={tab === 'cut' ? 'on' : ''} onClick={() => setTab('cut')}>
-                  Blocked <b>{stats.blocked}</b></button>
+                  Blocked <small>{stats.blocked}</small></button>
               </div>
 
               {tab === 'said' ? (
@@ -586,7 +591,7 @@ export default function App() {
                         <span className="text">{c.text}</span>
                         {outlets.map(s => (
                           <span key={s.publisher} className={`src ${s.conflict ? 'conflict' : ''}`}>
-                            {s.conflict && '⚠ '}{s.publisher}{c.sources.length > 1 && outlets.length === 1 ? ` ×${c.sources.length}` : ''}
+                            {s.publisher}{c.sources.length > 1 && outlets.length === 1 ? ` ×${c.sources.length}` : ''}{s.conflict && ' · differs'}
                           </span>
                         ))}
                       </p>
@@ -604,7 +609,6 @@ export default function App() {
                   ))}
                 </div>
               )}
-              <p className="disclaimer">Synthetic voice (ElevenLabs), read from exactly this transcript. Not investment advice.</p>
             </>
           )}
         </section>
