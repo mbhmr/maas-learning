@@ -1,0 +1,8 @@
+# secrets and private event data, never commit
+.env
+data/
+output/
+# python
+.venv/
+__pycache__/
+*.pyc
