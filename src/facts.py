@@ -98,7 +98,7 @@ def extract_facts(story, articles):
     docs = "\n\n".join(
         f"<article id=\"{a['id']}\" publisher=\"{a['publisher']}\" date=\"{a['date'][:10]}\">\n"
         f"{a['headline']}\n{a['text'][:MAX_CHARS]}\n</article>"
-        for a in (articles[i] for i in story["article_ids"]))
+        for a in (articles[i] for i in story.get("fact_article_ids", story["article_ids"])))
     raw = ask_json("facts", SYSTEM, f"Story: {story['title']}\n\n{docs}", SCHEMA)["facts"]
     return verify_facts(story, raw, articles)
 

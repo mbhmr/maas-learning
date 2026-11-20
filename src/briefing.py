@@ -29,7 +29,7 @@ def build_briefing(profile, stories, facts, out_dir, audio=True):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     lang = profile["language"]
-    lines, dropped = write_script(profile, stories, facts)
+    lines, dropped, chosen = write_script(profile, stories, facts)
     by_id = {f["id"]: f for f in facts}
 
     claims = [{"text": OPENING[lang], "sources": [], "kind": "disclosure"}]
@@ -41,7 +41,7 @@ def build_briefing(profile, stories, facts, out_dir, audio=True):
                 if s["article_id"] in seen:
                     continue
                 seen.add(s["article_id"])
-                sources.append({"articleId": s["article_id"], "publisher": s["publisher"], "url": s["url"],
+                sources.append({"articleId": s["article_id"], "publisher": s["publisher"], "url": s["url"], "date": s["date"][:10],
                                 "value": s["value_in_source"], "conflict": f["conflict"],
                                 "quote": s["quote"], "evidenceUrl": evidence_url(s["url"], s["quote"]),
                                 "translations": s.get("translations", {})})
@@ -49,10 +49,14 @@ def build_briefing(profile, stories, facts, out_dir, audio=True):
     claims.append({"text": CLOSING[lang], "sources": [], "kind": "disclosure"})
 
     briefing = {"profile": profile, "audioPath": None, "claims": claims, "dropped": dropped,
-                "stories": [{"rank": s["rank"], "title": s["title"], "articles": len(s["article_ids"])} for s in stories]}
+                "stories": [{"rank": s["rank"], "title": s["title"], "articles": len(s["article_ids"])} for s in chosen]}
+    for n, c in enumerate(claims):
+        c["id"], c["start"], c["end"] = f"c{n}", None, None
     if audio:
         mp3 = out_dir / "briefing.mp3"
-        speak(" ".join(c["text"] for c in claims), mp3)
+        for c, t in zip(claims, speak([c["text"] for c in claims], mp3, lang)):
+            if t:
+                c["start"], c["end"] = t  # seconds into the MP3, for highlighting and seeking
         briefing["audioPath"] = str(mp3)
     (out_dir / "briefing.json").write_text(json.dumps(briefing, indent=2, ensure_ascii=False), encoding="utf-8")
     return briefing

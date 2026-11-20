@@ -35,11 +35,15 @@ def log_usage(entry):
         f.write(json.dumps(entry) + "\n")
 
 
-def ask_json(step, system, user, schema):
-    """One chat call with a strict JSON schema. Returns the parsed object."""
+def ask_json(step, system, user, schema, max_tokens=4000):
+    """One chat call with a strict JSON schema. Returns the parsed object.
+
+    max_tokens stops a call that loops (once a fact call wrote 66,000 characters of repeated JSON).
+    """
     resp = _get_client().chat.completions.create(
         model=MODEL,
         temperature=0,
+        max_tokens=max_tokens,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_schema", "json_schema": {"name": step, "strict": True, "schema": schema}},
     )
@@ -48,4 +52,6 @@ def ask_json(step, system, user, schema):
     cost = None if price_in is None else (u.prompt_tokens * price_in + u.completion_tokens * price_out) / 1e6
     log_usage({"service": "openai", "step": step, "model": MODEL,
                "input_tokens": u.prompt_tokens, "output_tokens": u.completion_tokens, "usd": cost})
+    if resp.choices[0].finish_reason == "length":
+        raise RuntimeError(f"{step}: answer cut off at {max_tokens} tokens")
     return json.loads(resp.choices[0].message.content)

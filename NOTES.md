@@ -74,11 +74,18 @@ Die drei Personen ordnen sich die Rollen beim Kick-off zu. Jede Rolle prüft ans
 | Wer | Teil | Dateien | Konkret bis Fr 18:00 |
 |---|---|---|---|
 | Matthias (mit Claude Code) | Pipeline: Daten, Bündeln, Fakten, Prüfung, Skript, Kosten | `src/`, `prepare.py`, `one_story.py` | Ganzen Tag vorbereiten, Skript natürlicher, Widersprüche zuverlässig, Kosten 1× und 10× messen |
-| Danni | Oberfläche und Klang | `app.py`, `src/tts.py`, Branch `audio-ui` | Oberfläche für die Demo bauen (Player, Transkript, Quellen, Überraschungshörer), Stimme EN und DE auswählen, Audio gegenhören |
+| Danni | Oberfläche und Klang | `web/` (React + Vite), Branch `audio-ui` | Responsive Player: Satz beim Abspielen hervorheben, Quellenkarte je Aussage, Wildcard-Hörer über die API, Stimme EN und DE auswählen, Audio gegenhören |
 | Naomi (Lead) mit Matthias | Produkt, Pitch, Video, Abgabe | Folien, Video, Branch `pitch` | Käufer und Redaktionsablauf, Kostenfolie, Pitch-Skript, 3-Minuten-Video, BuilderBase-Abgabe |
 
 Gegenseitig prüfen: Danni hört die Fakten gegen, Naomi probiert die App wie die Jury, Matthias prüft die Zahlen auf den Folien.
-Schnittstelle zwischen Pipeline und Oberfläche: `build_briefing()` in `src/briefing.py` liefert `briefing.json` (Format siehe "Gemeinsame Übergabe"). Danni ändert nur `app.py` und `src/tts.py`, Matthias den Rest, so gibt es keine Konflikte.
+Schnittstelle zwischen Pipeline und Oberfläche: die API in `api.py` (`POST /api/briefing`, Format im README). Danni ändert nur `web/`, Matthias den Rest (auch `src/tts.py`, seit 20.11. 16:20), so gibt es keine Konflikte. `app.py` (Streamlit) bleibt als Ersatz, bis `web/` läuft.
+
+**Entscheidungen 20.11. 16:20** (Sourcera nicht erreichbar, darum selbst entschieden):
+- **Zeitfenster:** Artikel vom 13. bis 18.11., das Briefing gilt für den Morgen des 19.11. Grund: so liegen mehrere Tage einer laufenden Story zusammen, und die Jury-Musterlösung bündelt vermutlich über Tage.
+- **Dannis Vorschlag 1 (React-Seite, Satz hervorheben, Quellenkarte):** übernommen. Jede Zeile in `claims` hat jetzt `start`/`end` in Sekunden und je Quelle `quote`, `publisher`, `date`, `evidenceUrl`. Die Quelle in einem neuen Tab öffnen, damit der Player weiterläuft. Öffentlicher Link mit QR-Code: erst nach Freigabe durch Naomi (öffentlicher Deploy).
+- **Vorschlag 2 (einmal aufbereiten, je Hörer nur Auswahl und Skript):** so gebaut. Bündeln bleibt Code (TF-IDF) plus ein Modellaufruf über die Titel; deutsche und niederländische Artikel sind Invezz-Übersetzungen und werden über Autor und Uhrzeit verknüpft, dafür braucht es keine Embeddings. Ob `gpt-5.4-nano`/`-mini` (beide bei unserem Schlüssel verfügbar) besser oder billiger sind als `gpt-4.1-mini`, messen wir im Vergleich, bevor wir wechseln.
+- **Vorschlag 3 (n8n, ElevenLabs mit Zeitmarken, Cache):** Zeitmarken und Cache sind gebaut (`/with-timestamps`, ein Aufruf). Die Schlüssel bleiben auf dem Server (`api.py`). n8n nur als optionaler Zeitplan am Schluss, weil die Prüfung im Python-Code liegt.
+- **Stimme:** sehr energiegeladen (Matthias, 20.11. 16:18). Nur die Stimme, die Wörter bleiben neutral und geprüft.
 
 | Wann (Ortszeit) | Ergebnis |
 |---|---|

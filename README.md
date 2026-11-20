@@ -40,10 +40,27 @@ pip install -r requirements.txt
 
 ```
 python one_story.py                       # first end-to-end test: US producer prices, two sources
-python prepare.py --day 2026-11-13        # prepare one news day (about 16 model calls)
-python prepare.py --day 2026-11-13 --stories-only   # grouping and ranking only, free
-streamlit run app.py                      # the app: describe a listener, get the briefing
+python prepare.py                         # prepare 13 to 18 Nov once (about 50 small-model calls)
+python prepare.py --stories-only          # grouping only, free
+uvicorn api:app --port 8000               # API for the React player in web/
+streamlit run app.py                      # fallback app: describe a listener, get the briefing
 ```
+
+## API (for the player)
+
+`POST /api/briefing` with `{"day": "2026-11-18", "profile": {"name", "language": "en|de|nl", "seconds", "depth", "description"}}`
+returns the briefing. Same profile again = served from cache, no new cost.
+
+```
+{ "audioUrl": "/api/audio/2026-11-18/<key>.mp3",
+  "claims": [ { "id": "c3", "text": "spoken sentence", "kind": "claim|transition|disclosure",
+                "start": 12.4, "end": 16.9,            // seconds in the MP3, for highlighting and seeking
+                "sources": [ { "publisher", "date", "url", "quote", "evidenceUrl", "value", "conflict",
+                               "translations": {"de": {"url", "publisher"}} } ] } ],
+  "stories": [...], "dropped": [ { "text", "why" } ] }
+```
+`evidenceUrl` opens the original article with the quote highlighted (text fragment). Open it in a new tab so the
+audio keeps playing. `dropped` lists lines the checker removed, worth showing ("what we did not say").
 
 ## Working together
 

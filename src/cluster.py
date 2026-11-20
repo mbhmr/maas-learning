@@ -25,7 +25,11 @@ SIMILAR = 0.27  # tuned on known pairs: same event 0.28 to 0.44, different event
 LEAD = 1000
 TRANSLATION_MINUTES = 15
 # Buy/sell pitches are dropped up front: the briefing must not give investment advice.
-ADVICE = re.compile(r"\b(stocks? to buy|buy now|should you (invest|buy)|investing radar|strong buy|top-ranked)\b", re.I)
+ADVICE = re.compile(r"\b(stocks? to buy|buy now|should you (invest|buy)|investing radar|strong buy|top-ranked|"
+                    r"(a|good) (stock to )?buy\b|buy or sell|time to buy|worth buying)", re.I)
+# Round-ups cover many events at once; mixing them into one story would glue unrelated news together.
+ROUNDUP = re.compile(r"\b(evening digest|morning (digest|brief)|things to know|what to watch|week ahead|"
+                     r"weekly (recap|wrap)|market wrap|stocks? to watch|abendbericht|morgenbericht|wochenausblick|avondbericht|ochtendbericht)\b", re.I)
 PRIORITY_SECTIONS = {"fed", "ecb", "boj", "boe", "inflation", "central banks", "economy", "united states",
                      "stock market", "earnings", "world", "politics", "business"}
 
@@ -81,7 +85,7 @@ def cluster(arts, corpus):
 
     Returns [{'id', 'rank', 'title', 'article_ids', 'publishers', 'score', 'translations'}].
     """
-    arts = [a for a in arts if not ADVICE.search(a["headline"])]
+    arts = [a for a in arts if not ADVICE.search(a["headline"]) and not ROUNDUP.search(a["headline"])]
     originals, translations = link_translations(arts)
     originals.sort(key=_ts)
     tickers = [set(re.findall(r"\(([A-Z]{1,5})\)", a["headline"])) for a in originals]
@@ -120,3 +124,103 @@ def cluster(arts, corpus):
     for n, s in enumerate(stories, 1):
         s["rank"], s["id"] = n, f"s{n}"
     return stories
+
+
+# ---------------------------------------------------------------------------
+# Step 2: one cheap model call over the story TITLES only (no article text),
+# checked by code. Merges what TF-IDF split (an ongoing story told over days)
+# and rates how much each story matters to a financial newsroom.
+# ---------------------------------------------------------------------------
+
+MERGE_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["merge", "importance"],
+    "properties": {
+        "merge": {"type": "array", "description": "groups of story ids that are the same event or ongoing story",
+                  "items": {"type": "array", "items": {"type": "string"}}},
+        "importance": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["id", "score", "topic"],
+            "properties": {"id": {"type": "string"}, "score": {"type": "integer", "description": "1 to 5"},
+                           "topic": {"type": "string", "enum": ["central banks and macro", "currencies", "markets",
+                                                                "companies and tech", "crypto", "energy and commodities",
+                                                                "politics and world", "entertainment and lifestyle",
+                                                                "crime and accidents", "other"]}}}},
+    },
+}
+
+MERGE_SYSTEM = """You are the editor of a financial newsroom. You get a list of story ids with their headlines.
+1. merge: list groups of ids that report the SAME event or the same ongoing story (same company or institution
+   and the same development, e.g. a CEO resigning and the fallout in the following days). Do not merge stories
+   that merely share a sector or a company. Leave everything else out.
+2. importance: for EVERY id, a score from 5 (moves markets or affects many people: central bank decisions,
+   major data releases, very large companies) to 1 (gossip, minor single-company notes), and one topic."""
+
+_NAME = re.compile(r"\b[A-Z][a-zA-Z&\-]{2,}\b")
+_NOT_NAME = {"The", "Why", "What", "How", "Is", "Are", "Can", "Will", "This", "These", "After", "Before", "Here",
+             "New", "Stock", "Stocks", "Shares", "Price", "Today", "US", "Its", "From", "With", "For", "And"}
+
+
+COMMON = set("""his her him she who was did you now just out over says said claims calls reveals report reports
+warns amid about could down not while during former family man woman after before into first last next big top
+why what how when where new could should would year years day days week weeks time back""".split())
+MAX_GROUP = 40        # the model once proposed one group of 349 unrelated stories: refuse such groups outright
+RARE_SHARE = 0.05     # a shared name only counts if at most 5 % of stories carry it ("Huang" yes, "Trump" no)
+
+
+def _names(story):
+    words = {w.lower() for h in story["all_headlines"] for w in _NAME.findall(h) if w not in _NOT_NAME}
+    return words - STOP - COMMON
+
+
+def merge_and_rate(stories, articles, ask_json, end_day):
+    """Returns re-ranked stories. The model only proposes; a merge needs a shared name in the headlines."""
+    for s in stories:
+        s["all_headlines"] = [articles[i]["headline"] for i in s["article_ids"]]
+    listing = "\n".join(f"{s['id']}: " + " | ".join(s["all_headlines"][:3]) for s in stories)
+    out = ask_json("merge", MERGE_SYSTEM, listing, MERGE_SCHEMA, max_tokens=20000)
+    by_id = {s["id"]: s for s in stories}
+
+    # names are fixed BEFORE merging, so a growing story cannot collect ever more names and swallow everything
+    names = {s["id"]: _names(s) for s in stories}
+    df = Counter(n for ns in names.values() for n in ns)
+    rare = {n for n, c in df.items() if c <= max(3, RARE_SHARE * len(stories))}
+    merged_into, merges, refused = {}, 0, []
+    for group in out["merge"]:
+        ids = [i for i in dict.fromkeys(group) if i in by_id and i not in merged_into]
+        if len(ids) < 2:
+            continue
+        if len(ids) > MAX_GROUP:
+            refused.append((f"group of {len(ids)} stories", by_id[ids[0]]["title"]))
+            continue
+        head = max(ids, key=lambda i: len(by_id[i]["article_ids"]))
+        for i in ids:
+            if i == head or head in merged_into:
+                continue
+            if not names[i] & names[head] & rare:
+                refused.append((by_id[i]["title"], by_id[head]["title"]))
+                continue
+            h, o = by_id[head], by_id[i]
+            h["article_ids"] += o["article_ids"]
+            h["all_headlines"] += o["all_headlines"]
+            h["translations"].update(o["translations"])
+            merged_into[i] = head
+            merges += 1
+
+    rating = {r["id"]: r for r in out["importance"] if r["id"] in by_id}
+    end = datetime.fromisoformat(end_day + "T23:59:59+00:00")
+    result = []
+    for s in stories:
+        if s["id"] in merged_into:
+            continue
+        members = [articles[i] for i in s["article_ids"]]
+        s["publishers"] = sorted({a["publisher"] for a in members})
+        r = rating.get(s["id"], {"score": 2, "topic": "other"})
+        s["importance"], s["topic"] = max(1, min(5, r["score"])), r["topic"]
+        days_old = (end - max(_ts(a) for a in members)).days
+        s["latest"] = max(a["date"] for a in members)
+        s["score"] = round(3 * s["importance"] + 2 * len(s["publishers"]) + math.log2(1 + len(members))
+                           + max(0, 2 - days_old), 2)
+        result.append(s)
+    result.sort(key=lambda s: -s["score"])
+    for n, s in enumerate(result, 1):
+        s["rank"], s["id"] = n, f"s{n}"
+    return result, {"merges": merges, "refused": refused}
