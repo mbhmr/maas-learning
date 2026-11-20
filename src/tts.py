@@ -14,10 +14,12 @@ from .llm import ENV, log_usage
 
 # "Jessica", a premade ElevenLabs voice: bright, warm, playful (Matthias, 20.11.: a woman's voice). Override with
 # ELEVENLABS_VOICE_ID.
-DEFAULT_VOICE = "cgSgspJ2msm6clMCkdW9"
+DEFAULT_VOICE = "FVQMzxJGPUBtfz1Azdoy"  # Danielle, Matthias' pick for the pitch video (20.11.); before: Jessica cgSgspJ2msm6clMCkdW9
 # eleven_v3 knows three stability steps: 0.0 Creative, 0.5 Natural, 1.0 Robust. Creative sounded unstable,
 # Natural keeps the voice steady and still follows the audio tags.
 VOICE_SETTINGS = {"eleven_v3": {"stability": 0.5, "similarity_boost": 0.75},
+                  # v4 knows only these two; lower stability sounds livelier (tested for the pitch video, 20.11.)
+                  "eleven_v4": {"stability": 0.35, "similarity_boost": 0.8},
                   "other": {"stability": 0.25, "similarity_boost": 0.75, "style": 0.85, "use_speaker_boost": True,
                             "speed": 1.12}}
 # eleven_v3 audio tags: how a line is said, never words. They go into the speech only, not into the transcript.
@@ -64,10 +66,10 @@ def speak(parts, mp3_path, lang="en", tags=None):
     if not key:
         raise RuntimeError("ELEVENLABS_API_KEY is missing in .env.")
     voice = os.getenv("ELEVENLABS_VOICE_ID") or DEFAULT_VOICE
-    model = os.getenv("ELEVENLABS_MODEL", "eleven_v3")
+    model = os.getenv("ELEVENLABS_MODEL", "eleven_v4")
     spoken = [spoken_form(p, lang) for p in parts]
     tags = (list(tags or []) + [""] * len(parts))[:len(parts)]
-    tags = [TAG.get(t or "", "") if model == "eleven_v3" else "" for t in tags]
+    tags = [TAG.get(t or "", "") if model in ("eleven_v3", "eleven_v4") else "" for t in tags]
     text, spans = _layout(spoken, tags)
     r = httpx.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps",

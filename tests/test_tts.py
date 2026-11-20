@@ -100,7 +100,7 @@ def test_speak_without_key_raises(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------- voice and audio tags
-def test_default_voice_is_jessica_and_v3_natural(fake_tts, monkeypatch):
+def test_default_voice_is_danielle_on_v4(fake_tts, monkeypatch):
     monkeypatch.delenv("ELEVENLABS_VOICE_ID", raising=False)
     monkeypatch.delenv("ELEVENLABS_MODEL", raising=False)
     install, sent, path = fake_tts
@@ -114,8 +114,8 @@ def test_default_voice_is_jessica_and_v3_natural(fake_tts, monkeypatch):
     real_post = tts.httpx.post
     monkeypatch.setattr(tts.httpx, "post", post)
     tts.speak(["Hi"], path)
-    assert "cgSgspJ2msm6clMCkdW9" in seen["url"]
-    assert sent["json"]["model_id"] == "eleven_v3" and sent["json"]["voice_settings"]["stability"] == 0.5
+    assert "FVQMzxJGPUBtfz1Azdoy" in seen["url"]
+    assert sent["json"]["model_id"] == "eleven_v4" and sent["json"]["voice_settings"]["stability"] == 0.35
 
 
 def test_tags_only_in_speech_and_spans_skip_them(fake_tts, monkeypatch):
