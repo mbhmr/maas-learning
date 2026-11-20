@@ -338,7 +338,11 @@ def repair(profile, chosen, facts, day, kept, dropped, judged):
 
 RELATIVE_TIME = re.compile(r"\b(yesterday|today|tonight|tomorrow|last week|this week|next week|last night|"
                            r"gestern|heute|morgen früh|letzte woche|vorige woche|diese woche|nächste woche|"
-                           r"gisteren|vandaag|morgen|vorige week|deze week|volgende week|afgelopen week)\b", re.I)
+                           r"gisteren|vandaag|(?<!am )(?<!guten )morgen|vorige week|deze week|volgende week|afgelopen week|"
+                           # a weekday is relative too: the listener hears it on another day than the article's
+                           r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|montag|dienstag|mittwoch|"
+                           r"donnerstag|freitag|samstag|sonntag|maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|"
+                           r"zondag)\b", re.I)
 
 
 def calls_by_name(text, name):
@@ -629,8 +633,10 @@ def check_script(raw_lines, facts, lang):
             continue
         opening = " ".join(line["text"].lower().split()[:5])
         # the same figures again (two or more) is the same news, however it is worded
+        # the same fact told again with one of its figures is a repeat too ("rose 0.2 percent" twice)
         if any(" ".join(k["text"].lower().split()[:5]) == opening
-               or (len(spoken) >= 2 and numbers(k["text"], lang) >= spoken) for k in kept):
+               or (len(spoken) >= 2 and numbers(k["text"], lang) >= spoken)
+               or (spoken & numbers(k["text"], lang) and set(ids) & set(k["fact_ids"])) for k in kept):
             dropped.append({**line, "why": "repeats an earlier line"})
             continue
         if lang != "en" and ENGLISH_GIVEAWAY.search(line["text"]):

@@ -547,3 +547,20 @@ def test_german_three_decimals_from_english_quote_pass():
     fact = mkfact(quote="EUR/USD rose to 1.155 on Tuesday.")
     kept, _ = run("EUR/USD stieg auf 1.155.", facts=[fact], lang="de")
     assert len(kept) == 1
+
+
+def test_weekday_is_a_relative_date_but_am_morgen_is_fine():
+    fact = mkfact(quote="Producer prices rose 0.3% in October.")
+    _, dropped = run("Producer prices rose 0.3 percent on Tuesday.", facts=[fact])
+    assert "relative date" in dropped[0]["why"]
+    kept, _ = run("Am Morgen meldeten die Erzeugerpreise ein Plus von 0,3 Prozent.", facts=[fact], lang="de")
+    assert len(kept) == 1
+
+
+def test_same_fact_with_a_shared_figure_is_a_repeat():
+    fact = mkfact(quote="Retail sales rose 0.2% in October and sales excluding autos rose 0.6%.")
+    lines = [{"text": "US retail sales rose 0.2 percent in October.", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "Retail sales growth slowed to 0.2 percent, while sales excluding autos rose 0.6 percent.",
+              "kind": "claim", "fact_ids": ["s1-f1"]}]
+    kept, dropped = script.check_script(lines, [fact], "en")
+    assert len(kept) == 1 and dropped[0]["why"] == "repeats an earlier line"
