@@ -56,7 +56,7 @@ def test_no_sign_off_line_when_empty(monkeypatch, tmp_path):
 def test_tags_go_to_speech_only(monkeypatch, tmp_path):
     seen = {}
 
-    def speak(parts, mp3, lang, tags=None):
+    def speak(parts, mp3, lang, tags=None, words=None):
         seen["parts"], seen["tags"] = parts, tags
         return [(0.0, 1.0)] * len(parts)
     monkeypatch.setattr(briefing, "speak", speak)

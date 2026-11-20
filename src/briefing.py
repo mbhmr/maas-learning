@@ -90,9 +90,13 @@ def build_briefing(profile, stories, facts, out_dir, audio=True):
         c["id"], c["start"], c["end"] = f"c{n}", None, None
     if audio:
         mp3 = out_dir / "briefing.mp3"
-        for c, t in zip(claims, speak([c["text"] for c in claims], mp3, lang, tags=tags)):
+        words = []
+        times = speak([c["text"] for c in claims], mp3, lang, tags=tags, words=words)
+        for c, t, w in zip(claims, times, words + [None] * len(claims)):
             if t:
                 c["start"], c["end"] = t  # seconds into the MP3, for highlighting and seeking
+            if w:
+                c["words"] = w  # [start_s, end_s, char_start, char_end] per written word: the player marks the word read
         briefing["audioPath"] = str(mp3)
         # listen back: speech recognition re-hears every figure in the finished MP3 and compares it with the text
         try:

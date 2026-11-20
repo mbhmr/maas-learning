@@ -145,3 +145,22 @@ def test_no_tags_for_other_models(fake_tts, monkeypatch):
     install(len)
     tts.speak(["Hello"], path, tags=["excited"])
     assert sent["json"]["text"] == "Hello"
+
+
+def test_word_timings_point_at_written_words(fake_tts):
+    install, sent, path = fake_tts
+    install(len)
+    words = []
+    tts.speak(["Hello", "Up 5% today"], path, words=words)
+    # spoken "Hello\n\nUp 5 percent today": "5%" is spoken as "5 percent" (chars 10..19) but marks "5%" (3..5)
+    assert words[0] == [[0.0, 0.5, 0, 5]]
+    assert words[1][1] == [1.0, 1.9, 3, 5]
+    assert words[1][2][2:] == [6, 11] and "Up 5% today"[6:11] == "today"
+
+
+def test_word_timings_none_when_alignment_unusable(fake_tts):
+    install, _, path = fake_tts
+    install(len, short=True)
+    words = []
+    tts.speak(["A", "B"], path, words=words)
+    assert words == [None, None]

@@ -44,6 +44,23 @@ def spoken_form(text, lang):
     return re.sub(r"\s{2,}", " ", text)
 
 
+def _spoken_words(text, lang):
+    """The spoken form built word by word, so every written word knows where it sits in the speech.
+
+    Returns (spoken text, [(spoken_start, spoken_end, written_start, written_end)]). The rules in SPOKEN only touch
+    single words ("5%", "USD/JPY", "Q3"), so word by word gives the same speech as the whole line at once.
+    """
+    spoken, words = "", []
+    for m in re.finditer(r"\S+", text):
+        w = spoken_form(m.group(), lang).strip()
+        if not w:
+            continue
+        spoken += " " if spoken else ""
+        words.append((len(spoken), len(spoken) + len(w), m.start(), m.end()))
+        spoken += w
+    return spoken, words
+
+
 def _layout(parts, tags):
     """The text sent to the voice and the (start, end) character span of every part, tags excluded."""
     text, spans = "", []
@@ -56,10 +73,12 @@ def _layout(parts, tags):
     return text, spans
 
 
-def speak(parts, mp3_path, lang="en", tags=None):
+def speak(parts, mp3_path, lang="en", tags=None, words=None):
     """Speaks the parts (one per transcript line) as one MP3. Returns [(start_s, end_s)] per part.
 
     tags: per part a key of TAG ("excited", "cheerful" or ""), the delivery of that line.
+    words: an empty list to receive, per part, [[start_s, end_s, char_start, char_end], ...]: when each written
+    word of the transcript line is spoken, so the player can highlight the word being read. None if not usable.
     """
     load_dotenv(ENV)
     key = os.getenv("ELEVENLABS_API_KEY")
@@ -67,7 +86,8 @@ def speak(parts, mp3_path, lang="en", tags=None):
         raise RuntimeError("ELEVENLABS_API_KEY is missing in .env.")
     voice = os.getenv("ELEVENLABS_VOICE_ID") or DEFAULT_VOICE
     model = os.getenv("ELEVENLABS_MODEL", "eleven_v4")
-    spoken = [spoken_form(p, lang) for p in parts]
+    laid = [_spoken_words(p, lang) for p in parts]
+    spoken = [sp for sp, _ in laid]
     tags = (list(tags or []) + [""] * len(parts))[:len(parts)]
     tags = [TAG.get(t or "", "") if model in ("eleven_v3", "eleven_v4") else "" for t in tags]
     text, spans = _layout(spoken, tags)
@@ -89,5 +109,10 @@ def speak(parts, mp3_path, lang="en", tags=None):
         # the alignment may leave the tags out: then it matches the text without them
         text, spans = _layout(spoken, [""] * len(spoken))
         if len(starts) != len(text):
+            if words is not None:
+                words.extend([None] * len(parts))
             return [None] * len(parts)  # timing not usable: the player still works, just without highlighting
+    if words is not None:
+        for (a, _), (_, ws) in zip(spans, laid):
+            words.append([[round(starts[a + s0], 2), round(ends[a + s1 - 1], 2), w0, w1] for s0, s1, w0, w1 in ws])
     return [(round(starts[a], 2), round(ends[b - 1], 2)) if b > a else None for a, b in spans]
