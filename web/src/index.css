@@ -1,56 +1,46 @@
-/* Light theme */
+/* Light theme: flat, calm surfaces, one accent used sparingly */
 :root {
-  --bg: #f5f6fa;
-  --glow-1: rgba(109, 92, 255, .14);
-  --glow-2: rgba(8, 145, 178, .12);
-  --surface: rgba(255, 255, 255, .78);
-  --surface-2: rgba(15, 18, 35, .045);
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
   --surface-solid: #ffffff;
-  --ink: #0b0d14;
-  --muted: #5d6275;
-  --line: rgba(15, 18, 35, .09);
-  --accent: #6d5cff;
-  --accent-2: #0891b2;
-  --grad: linear-gradient(120deg, #6d5cff 0%, #3b82f6 50%, #0891b2 100%);
+  --ink: #0b0b0e;
+  --muted: #6b6c76;
+  --faint: #a3a4ad;
+  --line: rgba(10, 10, 20, .09);
+  --accent: #5b4bff;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(109, 92, 255, .09);
-  --ok: #059669;
-  --ok-soft: rgba(5, 150, 105, .1);
+  --accent-soft: rgba(91, 75, 255, .08);
+  --grad: linear-gradient(120deg, #6d5cff 0%, #0891b2 100%);
+  --ok: #0f8a5f;
+  --ok-soft: rgba(15, 138, 95, .09);
   --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, .1);
-  --mark: rgba(109, 92, 255, .2);
-  --shadow: 0 1px 1px rgba(15, 18, 35, .04), 0 12px 40px rgba(15, 18, 35, .08);
+  --warn-soft: rgba(180, 83, 9, .09);
+  --mark: rgba(91, 75, 255, .16);
+  --shadow: 0 1px 2px rgba(10, 10, 20, .04);
   color-scheme: light;
 }
 /* Dark theme: system setting, unless the page is forced to light */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #05060a; --glow-1: rgba(124, 108, 255, .22); --glow-2: rgba(34, 211, 238, .13);
-    --surface: rgba(255, 255, 255, .035); --surface-2: rgba(255, 255, 255, .06); --surface-solid: #0e1017;
-    --ink: #eef0f7; --muted: #8a90a6; --line: rgba(255, 255, 255, .08);
-    --accent: #8b7bff; --accent-2: #22d3ee; --grad: linear-gradient(120deg, #8b7bff 0%, #5b8cff 50%, #22d3ee 100%);
-    --accent-soft: rgba(139, 123, 255, .12); --ok: #34d399; --ok-soft: rgba(52, 211, 153, .12);
-    --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .12); --mark: rgba(139, 123, 255, .35);
-    --shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 20px 60px rgba(0, 0, 0, .45); color-scheme: dark;
+    --bg: #09090b; --surface: #111114; --surface-2: #1a1a1f; --surface-solid: #111114;
+    --ink: #ededf0; --muted: #8d8e98; --faint: #5c5d66; --line: rgba(255, 255, 255, .08);
+    --accent: #8b7bff; --accent-soft: rgba(139, 123, 255, .1); --grad: linear-gradient(120deg, #8b7bff 0%, #22d3ee 100%);
+    --ok: #3ccf91; --ok-soft: rgba(60, 207, 145, .1); --warn: #f5b13d; --warn-soft: rgba(245, 177, 61, .1);
+    --mark: rgba(139, 123, 255, .28); --shadow: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #05060a; --glow-1: rgba(124, 108, 255, .22); --glow-2: rgba(34, 211, 238, .13);
-  --surface: rgba(255, 255, 255, .035); --surface-2: rgba(255, 255, 255, .06); --surface-solid: #0e1017;
-  --ink: #eef0f7; --muted: #8a90a6; --line: rgba(255, 255, 255, .08);
-  --accent: #8b7bff; --accent-2: #22d3ee; --grad: linear-gradient(120deg, #8b7bff 0%, #5b8cff 50%, #22d3ee 100%);
-  --accent-soft: rgba(139, 123, 255, .12); --ok: #34d399; --ok-soft: rgba(52, 211, 153, .12);
-  --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .12); --mark: rgba(139, 123, 255, .35);
-  --shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 20px 60px rgba(0, 0, 0, .45); color-scheme: dark;
+  --bg: #09090b; --surface: #111114; --surface-2: #1a1a1f; --surface-solid: #111114;
+  --ink: #ededf0; --muted: #8d8e98; --faint: #5c5d66; --line: rgba(255, 255, 255, .08);
+  --accent: #8b7bff; --accent-soft: rgba(139, 123, 255, .1); --grad: linear-gradient(120deg, #8b7bff 0%, #22d3ee 100%);
+  --ok: #3ccf91; --ok-soft: rgba(60, 207, 145, .1); --warn: #f5b13d; --warn-soft: rgba(245, 177, 61, .1);
+  --mark: rgba(139, 123, 255, .28); --shadow: none; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-height: 100%; }
 body {
-  background:
-    radial-gradient(900px 600px at 8% -10%, var(--glow-1), transparent 60%),
-    radial-gradient(800px 600px at 100% 0%, var(--glow-2), transparent 60%),
-    var(--bg);
-  background-attachment: fixed;
+  background: var(--bg);
   color: var(--ink);
   font: 15px/1.55 Geist, Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   letter-spacing: -.005em;
@@ -59,3 +49,4 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
 ::selection { background: var(--mark); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -41,6 +41,8 @@ const STEPS = ['Picking the stories for this listener', 'Writing the script from
   'Checking every number and claim against the quotes', 'Recording the voice']
 
 const fmt = (s) => (s == null || isNaN(s) ? '0:00' : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`)
+// "1 outlet", "3 outlets": numbers with the right plural everywhere in the UI
+const pl = (n, one, many = one + 's') => `${Number(n).toLocaleString('en-US')} ${Number(n) === 1 ? one : many}`
 const day = (d) => (d ? new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
 // cut for length, an orphaned context line or a greeting without the name: not a truth problem, not counted as blocked
@@ -92,52 +94,59 @@ function SourceCard({ s, lang }) {
         <span className="outlet">{s.publisher}</span>
         <span className="date">{day(s.date)}</span>
       </header>
-      {s.conflict && <p className="warn">Sources disagree on this figure. Check both before relying on it.</p>}
+      {s.conflict && <p className="warn">Sources disagree on this figure.</p>}
       <blockquote><Quote quote={s.quote} value={s.value} /></blockquote>
       <footer>
-        <a className="open" href={s.evidenceUrl} target="_blank" rel="noreferrer">Open original, quote highlighted ↗</a>
+        <a className="srclink" href={s.evidenceUrl} target="_blank" rel="noreferrer" title="Opens the article with this quote highlighted">Open source ↗</a>
         {state !== 'none' && (
-          <button className="ghost" onClick={listen} disabled={state === 'loading'}>
-            {state === 'loading' ? 'Loading…' : '▶ Hear the quote'}
+          <button className="ghost small" onClick={listen} disabled={state === 'loading'} title="Hear the quote read aloud">
+            {state === 'loading' ? 'Loading…' : '▶ Quote'}
           </button>
         )}
       </footer>
       {Object.keys(s.translations || {}).length > 0 && (
         <p className="translations">Also in {Object.entries(s.translations).map(([l, t], n) => (
-          <a key={l} href={t.url} target="_blank" rel="noreferrer">{n ? ', ' : ''}{LANGS[l] || l}</a>))}
+          <a key={l} href={t.url} target="_blank" rel="noreferrer">{n ? ', ' : ''}{String(l).toUpperCase()}</a>))}
         </p>
       )}
     </article>
   )
 }
 
-function Evidence({ claim, pinned, onFollow, lang, onClose }) {
+function Evidence({ claim, mode, progress, onFollow, lang, onClose }) {
   if (!claim) return (
     <div className="evidence empty">
       <p className="kicker">Evidence</p>
-      <p>Press play. The source of every sentence appears here while you listen.</p>
+      <p>Press play. Each sentence's source appears here.</p>
     </div>
   )
   return (
-    <div className="evidence">
+    <div className={`evidence ${mode}`}>
       <div className="evidence-top">
-        <p className="kicker">{pinned ? 'Pinned evidence' : 'Now speaking'}</p>
+        <p className="kicker">
+          {mode === 'live' && <i className="livedot" aria-hidden />}
+          {mode === 'pinned' ? 'Selected' : mode === 'preview' ? 'Evidence' : 'Now speaking'}
+          {claim.start != null && <span className="at"> · at {fmt(claim.start)}</span>}
+        </p>
         <div className="evidence-actions">
-          {pinned && <button className="ghost small" onClick={onFollow}>Follow audio</button>}
+          {mode === 'pinned' && <button className="ghost small" onClick={onFollow}>Follow audio</button>}
           <button className="ghost small close" onClick={onClose} aria-label="Close">✕</button>
         </div>
       </div>
-      <p className="spoken">“{claim.text}”</p>
+      <div className="spoken">
+        <p>{claim.text}</p>
+        {progress != null && <span className="sprog" aria-hidden><i style={{ width: `${progress * 100}%` }} /></span>}
+      </div>
+      {mode === 'preview' && <p className="hint">Press play and this follows the voice.</p>}
       {claim.sources.length === 0
         ? <p className="muted">{claim.kind === 'disclosure'
-          ? 'Fixed line: discloses the synthetic voice and that this is not investment advice.'
-          : claim.kind === 'host' ? 'Greeting written for this listener. The checker allows no figures or facts in it.'
+          ? 'Fixed disclosure line.'
+          : claim.kind === 'host' ? 'Greeting. No facts or figures allowed.'
           : 'No figure in this line.'}</p>
         : <>
-          {claim.kind === 'context' && <p className="reading">Why it matters, our reading. It adds no new facts: it interprets the
-            verified quotes below and the checker blocks any figure that is not in them.</p>}
-          <p className="muted">{claim.sources.length === 1 ? 'Backed by 1 verified quote' :
-            `Backed by ${claim.sources.length} verified quotes from ${new Set(claim.sources.map(s => s.publisher)).size} outlets`}</p>
+          {claim.kind === 'context' && <p className="reading" title="Interprets the quotes below. The checker blocks any figure not in them.">
+            Our reading of these quotes. No new figures.</p>}
+          <p className="backing">{pl(claim.sources.length, 'verified quote')} · {pl(new Set(claim.sources.map(s => s.publisher)).size, 'outlet')}</p>
           {claim.sources.map((s) => <SourceCard key={s.articleId + s.quote} s={s} lang={lang} />)}
         </>}
     </div>
@@ -156,31 +165,30 @@ function Newsroom({ dayId }) {
       .then(setData).catch(e => setErr(e.message))
   }, [dayId])
   if (err) return <div className="error">Could not load the story list: {err}</div>
-  if (!data) return <div className="panel muted">Loading every story of the day…</div>
+  if (!data) return <div className="muted">Loading stories…</div>
   const list = only ? data.stories.filter(s => s.selected) : data.stories
   const articles = data.stories.reduce((n, s) => n + s.articleCount, 0)
   return (
     <section className="newsroom">
-      <div className="panel nr-head">
+      <div className="nr-head">
         <div>
           <p className="kicker">Newsroom · {data.day}</p>
-          <h2>{articles.toLocaleString()} articles, grouped into {data.stories.length} stories</h2>
-          <p className="muted">Same event from several outlets and languages becomes one story. Ranked by importance, outlets and freshness.
-            Selected stories get their facts extracted once a day; every listener's briefing is built from those.</p>
+          <h2>{pl(articles, 'article')} → {pl(data.stories.length, 'story', 'stories')}</h2>
+          <p className="muted">One event across outlets and languages is one story. The top stories get their facts checked once a day.</p>
         </div>
-        <label className="toggle"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} /> Only stories with checked facts</label>
+        <label className="toggle"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} /> Only checked stories</label>
       </div>
       <ol className="nr-list">
         {list.map(s => (
-          <li key={s.id} className={`panel nr-story ${open === s.id ? 'open' : ''}`}>
+          <li key={s.id} className={`nr-story ${open === s.id ? 'open' : ''}`}>
             <button className="nr-row" onClick={() => setOpen(open === s.id ? null : s.id)} aria-expanded={open === s.id}>
               <span className="nr-rank">{s.rank}</span>
               <span className="nr-title">{s.title}<small>{s.topic}</small></span>
               <span className="nr-meta">
-                <span><b>{s.articleCount}</b> articles{s.articles.length > s.articleCount ? ` + ${s.articles.length - s.articleCount} translated` : ''}</span>
-                <span><b>{s.outlets.length}</b> outlets</span>
+                <span><b>{s.articleCount}</b> {s.articleCount === 1 ? 'article' : 'articles'}{s.articles.length > s.articleCount ? ` + ${s.articles.length - s.articleCount} translated` : ''}</span>
+                <span><b>{s.outlets.length}</b> {s.outlets.length === 1 ? 'outlet' : 'outlets'}</span>
                 <span>{(s.languages || []).map(l => String(l).toUpperCase()).join(' · ')}</span>
-                {s.hasFacts ? <span className="nr-facts"><b>{s.factCount}</b> facts</span> : <span className="muted">no facts</span>}
+                {s.hasFacts ? <span className="nr-facts"><b>{s.factCount}</b> {s.factCount === 1 ? 'fact' : 'facts'}</span> : <span className="muted">no facts</span>}
               </span>
             </button>
             {open === s.id && (
@@ -201,6 +209,74 @@ function Newsroom({ dayId }) {
   )
 }
 
+/* The trust receipt: how this briefing was made, step by step, only from numbers the API returns. */
+function Receipt({ briefing, claims, stats, blockedOpen, onBlocked }) {
+  const [tip, setTip] = useState(null)
+  const n = (x) => Number(x).toLocaleString('en-US')
+  const w = (x, one, many = one + 's') => (Number(x) === 1 ? one : many)
+  const p = briefing.pipeline
+  const has = (k) => p && p[k] != null
+  const spoken = claims.filter(c => c.kind === 'claim' || c.kind === 'context').length
+  const bare = claims.filter(c => /\d/.test(c.text) && c.sources.length === 0).length
+  const ac = briefing.audioCheck
+  const misses = ac?.mismatches?.length || 0
+
+  const flow = p ? [
+    has('articlesRead') && { k: 'read', v: p.articlesRead, l: `${w(p.articlesRead, 'article')} read`,
+      t: `Every Newstex article of the news day was loaded${has('outlets') ? `, from ${n(p.outlets)} outlets` : ''}.` },
+    has('stories') && { k: 'stories', v: p.stories, l: w(p.stories, 'story', 'stories'),
+      t: 'Articles about the same event, across outlets and languages, are grouped into one story and ranked.' },
+    has('storiesWithFacts') && { k: 'checked', v: p.storiesWithFacts, l: `${w(p.storiesWithFacts, 'story', 'stories')} fact-mined`,
+      t: 'For the top stories, every fact is pulled out together with the verbatim quote it rests on.' },
+    has('factsChecked') && { k: 'facts', v: p.factsChecked, l: `${w(p.factsChecked, 'fact')} verified`,
+      t: `Value, unit, date and entity of each fact are matched against its quote${has('sourcesRejected') ? `: ${n(p.sourcesRejected)} sources rejected` : ''}.` },
+  ].filter(Boolean) : [
+    { k: 'quotes', v: stats.quotes, l: `verified ${w(stats.quotes, 'quote')}`, t: 'The verbatim quotes behind this briefing, each checked against its article.' },
+    { k: 'outlets', v: stats.outlets, l: w(stats.outlets, 'outlet'), t: 'The different publishers those quotes come from.' },
+  ]
+  flow.push({ k: 'spoken', v: spoken, l: `${w(spoken, 'sentence')} spoken`, final: true,
+    t: 'Only sentences built from verified facts reach the voice, and each one links to its quotes.' })
+
+  const seals = [
+    { k: 'blocked', v: stats.blocked, l: `${w(stats.blocked, 'line')} blocked`, tone: 'warn blocked', click: onBlocked, on: blockedOpen,
+      t: 'Lines the model wrote but the checker could not back with a quote. Never spoken. Tap to read them.' },
+    { k: 'bare', v: bare, l: `unsourced ${w(bare, 'figure')}`, tone: bare ? 'warn' : 'ok',
+      t: 'Any spoken sentence with a number must cite a quote that contains that number.' },
+    stats.conflicts > 0 && { k: 'conflict', v: stats.conflicts, l: w(stats.conflicts, 'disagreement') + ' named', tone: 'warn',
+      t: 'Where outlets report different figures, the briefing says so instead of picking one.' },
+    ac && ac.checked > 0 && { k: 'ear', v: `${ac.ok}/${ac.checked}`, l: 'figures re-heard by ear', tone: ac.ok === ac.checked ? 'ok' : 'warn',
+      t: `Speech recognition re-heard ${ac.ok} of ${ac.checked} figures correctly in the finished audio${misses ? `, ${misses} flagged` : ''}.` },
+  ].filter(Boolean)
+
+  const all = [...flow, ...seals]
+  const active = all.find(s => s.k === tip)
+  const bind = (s) => ({
+    onMouseEnter: () => setTip(s.k), onFocus: () => setTip(s.k),
+    onClick: () => { setTip(s.k); s.click?.() }, 'aria-describedby': tip === s.k ? 'receipt-tip' : undefined,
+  })
+  return (
+    <section className="receipt" aria-label="How this briefing was made" onMouseLeave={() => setTip(null)}>
+      <ol className="flow">
+        {flow.map(s => (
+          <li key={s.k}>
+            <button className={`step ${s.final ? 'final' : ''} ${tip === s.k ? 'tip' : ''}`} {...bind(s)}>
+              <b>{typeof s.v === 'number' ? n(s.v) : s.v}</b><span>{s.l}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <div className="seals">
+        {seals.map(s => (
+          <button key={s.k} className={`seal ${s.tone} ${s.on ? 'on' : ''} ${tip === s.k ? 'tip' : ''}`} {...bind(s)}>
+            <b>{typeof s.v === 'number' ? n(s.v) : s.v}</b> {s.l}
+          </button>
+        ))}
+      </div>
+      {active && <p id="receipt-tip" className="receipt-tip" role="status">{active.t}</p>}
+    </section>
+  )
+}
+
 function Timeline({ claims, duration, time, onSeek }) {
   if (!duration) return <div className="timeline idle" />
   return (
@@ -209,7 +285,7 @@ function Timeline({ claims, duration, time, onSeek }) {
       onSeek(((e.clientX - r.left) / r.width) * duration)
     }}>
       {claims.filter(c => c.start != null).map((c) => (
-        <span key={c.id} className={`seg ${c.kind} ${c.sources.some(s => s.conflict) ? 'conflict' : ''} ${time >= c.start ? 'done' : ''}`}
+        <span key={c.id} className={`seg ${c.kind} ${c.kind === 'claim' && c.sources.some(s => s.conflict) ? 'conflict' : ''} ${time >= c.start ? 'done' : ''}`}
           style={{ left: `${(c.start / duration) * 100}%`, width: `${Math.max(0.4, ((c.end - c.start) / duration) * 100)}%` }}
           title={c.text} />
       ))}
@@ -276,7 +352,39 @@ export default function App() {
     const spoken = claims.filter(c => c.start != null && c.start <= time + 0.05)
     return spoken.length ? spoken[spoken.length - 1] : null
   }, [claims, time])
-  const shown = pinned ? claims.find(c => c.id === pinned) : current
+  // before play, the evidence panel previews the first checked sentence instead of sitting empty
+  const preview = !pinned && !current ? claims.find(c => c.kind === 'claim' && c.sources.length) : null
+  const shown = pinned ? claims.find(c => c.id === pinned) : current || preview
+  const evMode = pinned ? 'pinned' : current ? 'live' : 'preview'
+  const progress = evMode === 'live' && current.end > current.start
+    ? Math.min(1, Math.max(0, (time - current.start) / (current.end - current.start))) : null
+
+  // optional chime at the end of each checked fact; fires only on normal playback, never on a seek
+  const [chime, setChime] = useState(false)
+  const sounds = useRef(null)
+  const lastT = useRef(0)
+  const ring = (name) => {
+    const a = sounds.current?.[name]
+    if (a) { a.currentTime = 0; a.play().catch(() => {}) }
+  }
+  const toggleChime = () => {
+    if (!sounds.current) {
+      sounds.current = { verified: new Audio('/api/sound/verified.mp3'), conflict: new Audio('/api/sound/conflict.mp3') }
+      Object.values(sounds.current).forEach(a => { a.volume = 0.6; a.preload = 'auto' })
+    }
+    if (!chime) ring('verified')
+    setChime(!chime)
+  }
+  const onTime = (e) => {
+    const t = e.target.currentTime, prev = lastT.current
+    lastT.current = t
+    setTime(t)
+    if (!chime || e.target.paused || e.target.seeking || t <= prev || t - prev > 1.5) return
+    const hit = claims.filter(c => c.kind === 'claim' && c.end != null && c.end > prev && c.end <= t)
+    if (hit.length) ring(hit[hit.length - 1].sources.some(s => s.conflict) ? 'conflict' : 'verified')
+  }
+  // only factual claims carry a source chip; a context line is interpretation, not proof
+  const nowOutlets = current && current.kind === 'claim' ? [...new Set(current.sources.map(s => s.publisher))] : []
 
   useEffect(() => {
     if (!current || pinned || !playing) return
@@ -320,7 +428,7 @@ export default function App() {
           </span>
           <div>
             <h1>The <em>Liquid</em> Briefing</h1>
-            <p>Your news, read aloud. Every sentence traceable to its source.</p>
+            <p>Audio news. Every sentence sourced.</p>
           </div>
         </div>
         <nav className="views" aria-label="View">
@@ -335,7 +443,7 @@ export default function App() {
       <main className="grid">
         <aside className="left">
           <section className="panel">
-            <p className="kicker">Who is listening?</p>
+            <p className="kicker">Listener</p>
             <div className="presets">
               {PRESETS.map(p => (
                 <button key={p.key} className={`chip ${preset === p.key ? 'on' : ''}`}
@@ -344,16 +452,16 @@ export default function App() {
                 </button>
               ))}
               <button className={`chip wild ${preset === 'custom' ? 'on' : ''}`} onClick={() => setPreset('custom')} disabled={busy}>
-                ✦ Wildcard listener
+                ✦ Wildcard
               </button>
             </div>
             {preset === 'custom' && (
               <form className="custom" onSubmit={(e) => { e.preventDefault(); generate() }}>
-                <label>Their name
+                <label>Name
                   <input value={custom.name} maxLength={40} placeholder="e.g. Lena"
                     onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
                 </label>
-                <label>Describe them
+                <label>Who are they?
                   <textarea rows={4} required minLength={10} maxLength={1000} value={custom.description}
                     placeholder="e.g. A student in Maastricht who follows AI companies and crypto, wants it short and fun."
                     onChange={(e) => setCustom({ ...custom, description: e.target.value })} />
@@ -376,8 +484,8 @@ export default function App() {
                 </label>
                 <label className="toggle"><input type="checkbox" checked={custom.mode === 'edition'}
                   onChange={(e) => setCustom({ ...custom, mode: e.target.checked ? 'edition' : 'personal' })} />
-                  Shared edition: one recording for everyone with similar interests, only the greeting is personal (about 18× cheaper at scale)</label>
-                <button className="primary" disabled={busy}>Make their briefing</button>
+                  <span title="One recording for everyone with similar interests, only the greeting is personal.">Shared edition, about 18× cheaper at scale</span></label>
+                <button className="primary" disabled={busy}>Generate briefing</button>
               </form>
             )}
             {days.length > 1 && (
@@ -391,10 +499,10 @@ export default function App() {
 
           {briefing && (
             <section className="panel">
-              <p className="kicker">In this briefing</p>
+              <p className="kicker">Stories</p>
               <ol className="stories">
                 {briefing.stories.map(s => (
-                  <li key={s.rank}><span>{s.title}</span><small>{s.articles} articles grouped</small></li>
+                  <li key={s.rank}><span>{s.title}</span><small>{pl(s.articles, 'article')}</small></li>
                 ))}
               </ol>
             </section>
@@ -407,7 +515,7 @@ export default function App() {
             <div className="busy">
               <div className="pulse" />
               <ol>{STEPS.map((s, n) => <li key={s} className={n < step ? 'done' : n === step ? 'now' : ''}>{s}</li>)}</ol>
-              <p className="muted">A new listener takes about 30 to 60 seconds. The same listener again is instant.</p>
+              <p className="muted">New listener: about 30 to 60 s. Cached: instant.</p>
             </div>
           )}
           {briefing && !busy && (
@@ -419,42 +527,60 @@ export default function App() {
                 </button>
                 <div className="player-main">
                   <div className="player-meta">
-                    <strong>{briefing.profile.name}</strong>
-                    {briefing.mode === 'edition' && briefing.edition && (
-                      <span className="edition" title={`Edition ${briefing.edition.key}`}>Shared edition · {briefing.edition.label}{briefing.edition.listeners > 1 ? ` · ${briefing.edition.listeners} listeners` : ''}</span>)}
-                    <span>{intro ? "♪ station jingle" : `${LANGS[briefing.profile.language]} · ${fmt(time)} / ${fmt(duration)}`}</span>
+                    <div className="who">
+                      <strong>{briefing.profile.name}</strong>
+                      <span className="lang">{LANGS[briefing.profile.language] || briefing.profile.language}</span>
+                      {briefing.mode === 'edition' && briefing.edition && (
+                        <span className="edition" title={`Edition ${briefing.edition.key}`}>Shared edition · {briefing.edition.label}{briefing.edition.listeners > 1 ? ` · ${briefing.edition.listeners} listeners` : ''}</span>)}
+                    </div>
+                    <span className="clock">{intro ? '♪ station jingle' : `${fmt(time)} / ${fmt(duration)}`}</span>
                   </div>
                   <Timeline claims={claims} duration={duration} time={time} onSeek={seek} />
+                  <div className="player-tools">
+                    {nowOutlets.length > 0 && (
+                      <button className="nowsrc" onClick={() => setSheet(true)}>
+                        <span>✓ {nowOutlets.join(', ')}</span> <u>quote</u>
+                      </button>
+                    )}
+                    <button className={`switch ${chime ? 'on' : ''}`} aria-pressed={chime} onClick={toggleChime}
+                      title="Plays a short chime after each checked fact, a different one where sources disagree">
+                      <i aria-hidden /> Chime per checked fact
+                    </button>
+                    <button className="ghost small rate" onClick={() => setRate(rate === 1 ? 1.25 : rate === 1.25 ? 1.5 : 1)}
+                      aria-label="Playback speed">{rate}×</button>
+                  </div>
                 </div>
-                <button className="ghost small" onClick={() => setRate(rate === 1 ? 1.25 : rate === 1.25 ? 1.5 : 1)}>{rate}×</button>
                 {briefing.audioUrl && (<>
                   <audio ref={jingle} src="/api/sound/jingle.mp3" preload="auto"
                     onEnded={() => { setIntro(false); audio.current?.play() }} onError={() => setIntro(false)} />
                   <audio ref={audio} src={briefing.audioUrl} preload="auto"
-                    onTimeUpdate={(e) => setTime(e.target.currentTime)}
-                    onLoadedMetadata={(e) => setDuration(e.target.duration)}
-                    onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+                    onTimeUpdate={onTime}
+                    onSeeking={(e) => { lastT.current = e.target.currentTime }}
+                    onLoadedMetadata={(e) => { setDuration(e.target.duration); lastT.current = e.target.currentTime }}
+                    onPlay={(e) => { lastT.current = e.target.currentTime; setPlaying(true) }}
+                    onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
                 </>)}
               </div>
 
-              <div className="stats">
-                <span><b>{stats.claims}</b> spoken claims</span>
-                <span><b>{stats.quotes}</b> verified quotes</span>
-                <span><b>{stats.outlets}</b> outlets</span>
-                {stats.conflicts > 0 && <span className="c"><b>{stats.conflicts}</b> disagreements named</span>}
-                <button className={`blocked ${tab === 'cut' ? 'on' : ''}`} onClick={() => setTab(tab === 'cut' ? 'said' : 'cut')}>
-                  <b>{stats.blocked}</b> lines blocked by the checker
-                </button>
+              <Receipt briefing={briefing} claims={claims} stats={stats} blockedOpen={tab === 'cut'}
+                onBlocked={() => setTab(tab === 'cut' ? 'said' : 'cut')} />
+
+              <div className="tabs" role="tablist" aria-label="Transcript">
+                <button role="tab" aria-selected={tab === 'said'} className={tab === 'said' ? 'on' : ''} onClick={() => setTab('said')}>
+                  Transcript</button>
+                <button role="tab" aria-selected={tab === 'cut'} className={tab === 'cut' ? 'on' : ''} onClick={() => setTab('cut')}>
+                  Blocked <b>{stats.blocked}</b></button>
               </div>
 
               {tab === 'said' ? (
                 <div className="transcript">
                   {claims.map(c => {
-                    const outlets = [...new Map(c.sources.map(s => [s.publisher, s])).values()]
+                    const outlets = c.kind === 'claim' ? [...new Map(c.sources.map(s => [s.publisher, s])).values()] : []
                     return (
                       <p key={c.id} ref={(el) => { lineRefs.current[c.id] = el }}
                         className={`line ${c.kind} ${current?.id === c.id ? 'now' : ''} ${pinned === c.id ? 'pin' : ''}
                           ${c.start != null && time > c.end ? 'past' : ''}`}
+                        style={current?.id === c.id && progress != null ? { '--p': progress } : undefined}
                         onClick={() => openClaim(c)}>
                         {c.kind === 'context' && <span className="tag">Why it matters</span>}
                         <span className="text">{c.text}</span>
@@ -469,8 +595,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="cut">
-                  <p className="muted">These lines were written by the model and <b>never spoken</b>. Crossed out in full: the checker
-                    could not back them with the cited quotes. Greyed: cut for length or style, not for truth.</p>
+                  <p className="muted">Written by the model, <b>never spoken</b>. Struck through: no quote backs it. Faded: cut for length or style.</p>
                   {(briefing.dropped || []).map((d, n) => (
                     <div key={n} className={`cutline ${notChecker(d.why) ? 'length' : ''}`}>
                       <s>{d.text}</s>
@@ -479,14 +604,13 @@ export default function App() {
                   ))}
                 </div>
               )}
-              <p className="disclaimer">Synthetic voice (ElevenLabs). Generated from exactly this transcript. Information, not investment advice.
-                {briefing.audioCheck && ` Audio check: ${briefing.audioCheck.ok} of ${briefing.audioCheck.checked} spoken figures confirmed by speech recognition.`}</p>
+              <p className="disclaimer">Synthetic voice (ElevenLabs), read from exactly this transcript. Not investment advice.</p>
             </>
           )}
         </section>
 
         <aside className={`right ${sheet ? 'open' : ''}`}>
-          <Evidence claim={shown} pinned={!!pinned} lang={briefing?.profile.language}
+          <Evidence claim={shown} mode={evMode} progress={progress} lang={briefing?.profile.language}
             onFollow={() => setPinned(null)} onClose={() => { setSheet(false); setPinned(null) }} />
         </aside>
       </main>)}
