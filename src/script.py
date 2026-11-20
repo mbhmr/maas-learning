@@ -14,6 +14,7 @@ import re
 from datetime import date
 
 from .facts import numbers
+from .lessons import prompt_block
 from .llm import SCRIPT_MODEL, ask_json
 
 # Fixed by code, never by the model. Kept short: in a 30 s briefing every second of frame is a second of news.
@@ -185,7 +186,7 @@ Facts and numbers:
 - {NUMBER_STYLE[lang]}
 - Name an outlet at most once per story. Always name both when a fact is marked CONFLICT and say they differ.
 - No recommendations, no buy or sell, never what listeners can or should do with their money, no predictions
-  of your own, no cheering for a stock or market move. Say whose shares moved (the company, not a person)."""
+  of your own, no cheering for a stock or market move. Say whose shares moved (the company, not a person).""" + prompt_block()
 
 
 def _newest(fact):
