@@ -2,8 +2,11 @@
 
 Run:  .venv/Scripts/uvicorn api:app --port 8000
   GET  /api/days                       prepared news days
-  POST /api/briefing  {day, profile}   briefing.json for any listener (cached: same profile = no new cost)
+  POST /api/briefing  {day, profile, mode}  briefing.json for any listener (cached: same profile = no new cost)
+                                       mode "personal" (default): own story choice and script for this listener;
+                                       mode "edition": shared edition body, only the greeting is personal
   GET  /api/audio/{day}/{key}.mp3      the audio of a briefing
+  GET  /api/stories/{day}              every story of the day, ranked, with its article list (no article text)
 The briefing format is described in README.md (claims with text, start/end seconds and sources).
 
 Many listeners at once: a new briefing is built in a worker thread, so cached listeners are served while others
@@ -18,7 +21,9 @@ import os
 import re
 import time
 from collections import deque
+from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +31,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from src import editions
 from src.briefing import build_briefing, slug
 
 OUTPUT = Path("output")
@@ -48,6 +54,9 @@ class Request(BaseModel):
     day: str
     profile: Profile
     audio: bool = True
+    # personal stays the default: the demo presets keep their own story choice and the model's greeting. edition is
+    # the path for many listeners (src/editions.py): same news body for everyone with the same edition key.
+    mode: Literal["personal", "edition"] = "personal"
 
 
 def _day(day):
@@ -94,13 +103,21 @@ def _build(folder, profile, out, audio):
     return build_briefing(profile, stories, facts, out, audio=audio)
 
 
+def _build_edition(folder, profile, out, audio):
+    """A listener of a shared edition: segment call (cached), the edition once, then greeting + body."""
+    stories = json.loads((folder / "stories.json").read_text(encoding="utf-8"))
+    facts = json.loads((folder / "facts.json").read_text(encoding="utf-8"))["facts"]
+    return editions.build_listener(folder, profile, out, stories, facts, audio=audio)
+
+
 @app.post("/api/briefing")
 async def briefing(req: Request):
     folder = _day(req.day)
     profile = req.profile.model_dump()
     if profile["language"] not in ("en", "de", "nl") or not 20 <= profile["seconds"] <= 300:
         raise HTTPException(422, "language must be en, de or nl and seconds between 20 and 300")
-    key = f"{slug(profile['name'])}-{hashlib.sha1(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:8]}"
+    hashed = profile if req.mode == "personal" else {**profile, "mode": req.mode}  # personal keys stay as they were
+    key = f"{slug(profile['name'])}-{hashlib.sha1(json.dumps(hashed, sort_keys=True).encode()).hexdigest()[:8]}"
     out = folder / "briefings" / key
     cached = out / "briefing.json"
     while True:
@@ -114,7 +131,8 @@ async def briefing(req: Request):
             await asyncio.shield(task)
             continue
         _admit()
-        task = asyncio.ensure_future(run_in_threadpool(_build, folder, profile, out, req.audio))
+        build = _build if req.mode == "personal" else _build_edition
+        task = asyncio.ensure_future(run_in_threadpool(build, folder, profile, out, req.audio))
         _inflight[key] = task
         task.add_done_callback(lambda _t, k=key: _inflight.pop(k, None))
         result = await asyncio.shield(task)  # shield: a listener who closes the tab does not abort a paid build
@@ -122,6 +140,9 @@ async def briefing(req: Request):
     result = dict(result)
     result["audioUrl"] = f"/api/audio/{req.day}/{key}.mp3" if (out / "briefing.mp3").exists() else None
     result.pop("audioPath", None)  # local file path, not for the browser
+    result["mode"] = req.mode
+    edition_key = result.pop("editionKey", None)
+    result["edition"] = editions.info(folder, edition_key) if edition_key else None  # count is read fresh
     return result
 
 
@@ -171,3 +192,54 @@ def quote_audio(req: QuoteRequest):
     if req.quote not in _known_quotes():
         raise HTTPException(404, "not a quote from our checked facts")
     return FileResponse(speak_quote(req.quote, req.lang), media_type="audio/mpeg")
+
+
+# ---------------------------------------------------------------- the stories of a day, for the newsroom view
+
+@lru_cache(maxsize=1)
+def _article_meta():
+    """Language, headline and link of every article in data/ (never the text). Empty if the data is not here."""
+    from src.articles import load_articles
+    try:
+        return {i: {k: a[k] for k in ("publisher", "date", "headline", "url", "language")}
+                for i, a in load_articles().items()}
+    except FileNotFoundError:
+        return {}
+
+
+@app.get("/api/stories/{day}")
+def stories_of_day(day: str):
+    """All stories prepare.py grouped for this day, most important first. Metadata and links only, no article
+    body (licence). language is null when data/ is missing on this machine."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or not (OUTPUT / day / "stories.json").exists():
+        raise HTTPException(404, f"day {day} is not prepared")
+    stories = json.loads((OUTPUT / day / "stories.json").read_text(encoding="utf-8"))
+    facts_path = OUTPUT / day / "facts.json"
+    facts = json.loads(facts_path.read_text(encoding="utf-8"))["facts"] if facts_path.exists() else []
+    fact_count = {}
+    for f in facts:
+        fact_count[f["story_id"]] = fact_count.get(f["story_id"], 0) + 1
+    meta = _article_meta()
+    out = []
+    for s in sorted(stories, key=lambda s: s["rank"]):
+        articles = []
+        headlines = {h["id"]: h for h in s.get("headlines", [])}
+        for aid in s["article_ids"]:
+            h = {**meta.get(aid, {}), **headlines.get(aid, {})}  # older days have no date in their headlines
+            articles.append({"id": aid, "publisher": h.get("publisher"), "date": (h.get("date") or "")[:10] or None,
+                             "headline": h.get("headline"), "url": h.get("url"), "language": h.get("language"),
+                             "translationOf": None})
+            for lang, tid in s.get("translations", {}).get(aid, {}).items():
+                t = meta.get(tid)
+                if t:
+                    articles.append({"id": tid, "publisher": t["publisher"], "date": t["date"][:10],
+                                     "headline": t["headline"], "url": t["url"], "language": lang,
+                                     "translationOf": aid})
+        out.append({"rank": s["rank"], "id": s["id"], "title": s["title"], "topic": s.get("topic"),
+                    "importance": s.get("importance"), "outlets": s.get("publishers", []),
+                    "articleCount": len(s["article_ids"]),
+                    "languages": sorted({a["language"] for a in articles if a["language"]}),
+                    "selected": bool(s.get("selected")), "hasFacts": s["id"] in fact_count,
+                    "factCount": fact_count.get(s["id"], 0), "latest": (s.get("latest") or "")[:10] or None,
+                    "articles": articles})
+    return {"day": day, "stories": out}

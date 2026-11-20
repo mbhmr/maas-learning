@@ -208,3 +208,139 @@ def test_audio_request_waits_for_text_build_then_builds_audio(env):
     results = gather(body(audio=False, description=desc), body(audio=True, description=desc))
     assert [r[0] for r in results] == [200, 200]
     assert len(calls) == 2 and results[1][1]["audioUrl"].endswith(".mp3") and results[0][1]["audioUrl"] is None
+
+
+# ---------------------------------------------------------------- shared editions (mode "edition")
+
+@pytest.fixture
+def edition_env(env, monkeypatch):
+    client, calls, tmp = env
+    built = []
+
+    def fake_listener(folder, profile, out, stories, facts, audio=True):
+        built.append(profile)
+        out.mkdir(parents=True, exist_ok=True)
+        key = "en-90s-medium-markets-fx"
+        (folder / "editions" / key).mkdir(parents=True, exist_ok=True)
+        (folder / "editions" / key / "briefing.json").write_text(json.dumps(
+            {"key": key, "language": "en", "seconds": 90, "depth": "medium", "segment": "markets-fx"}),
+            encoding="utf-8")
+        listeners = folder / "editions" / key / "listeners.json"
+        seen = json.loads(listeners.read_text()) if listeners.exists() else []
+        listeners.write_text(json.dumps(seen + [profile["name"]]))
+        result = {"mode": "edition", "editionKey": key, "claims": [], "audioPath": str(out / "briefing.mp3")}
+        (out / "briefing.json").write_text(json.dumps(result), encoding="utf-8")
+        if audio:
+            (out / "briefing.mp3").write_bytes(b"ID3edition")
+        return dict(result)
+    monkeypatch.setattr(api.editions, "build_listener", fake_listener)
+    return client, calls, built
+
+
+def test_personal_is_default_and_says_so(env):
+    client, _, _ = env
+    r = post(client).json()
+    assert r["mode"] == "personal" and r["edition"] is None
+
+
+def test_edition_mode_response(edition_env):
+    client, calls, built = edition_env
+    r = client.post("/api/briefing", json={"day": "2026-11-18", "mode": "edition", "profile": PROFILE})
+    j = r.json()
+    assert r.status_code == 200 and calls == [] and len(built) == 1  # the personal build is not used
+    assert j["mode"] == "edition" and "editionKey" not in j and "audioPath" not in j
+    assert j["edition"] == {"key": "en-90s-medium-markets-fx", "segment": "markets-fx", "language": "en",
+                            "seconds": 90, "depth": "medium", "label": "markets and currencies", "listeners": 1}
+    assert client.get(j["audioUrl"]).content == b"ID3edition"
+
+
+def test_edition_listener_count_is_read_fresh_from_cache(edition_env):
+    client, _, built = edition_env
+    send = lambda **p: client.post("/api/briefing", json={"day": "2026-11-18", "mode": "edition",
+                                                          "profile": {**PROFILE, **p}}).json()
+    first = send()
+    send(name="Ben")
+    again = send()  # Anna again: served from cache, but the count includes Ben now
+    assert len(built) == 2 and first["edition"]["listeners"] == 1 and again["edition"]["listeners"] == 2
+
+
+def test_same_profile_personal_and_edition_do_not_share_a_cache(edition_env):
+    client, calls, built = edition_env
+    p = post(client).json()
+    e = client.post("/api/briefing", json={"day": "2026-11-18", "mode": "edition", "profile": PROFILE}).json()
+    assert p["audioUrl"] != e["audioUrl"] and len(calls) == 1 and len(built) == 1
+
+
+def test_unknown_mode_is_422(env):
+    client, calls, _ = env
+    r = client.post("/api/briefing", json={"day": "2026-11-18", "mode": "shared", "profile": PROFILE})
+    assert r.status_code == 422 and calls == []
+
+
+# ---------------------------------------------------------------- GET /api/stories/{day}
+
+STORIES = [
+    {"id": "s2", "rank": 2, "title": "Second", "topic": "markets", "importance": 3, "publishers": ["Zacks"],
+     "article_ids": ["z1"], "selected": False, "translations": {}, "latest": "2026-11-17T08:00:00+00:00",
+     "headlines": [{"id": "z1", "publisher": "Zacks", "headline": "Z one", "date": "2026-11-17T08:00:00+00:00",
+                    "url": "https://z/1"}]},
+    {"id": "s1", "rank": 1, "title": "First", "topic": "currencies", "importance": 5,
+     "publishers": ["Invezz", "ActionForex"], "article_ids": ["i1", "a1"], "selected": True,
+     "translations": {"i1": {"de": "i1de"}}, "latest": "2026-11-18T09:00:00+00:00",
+     "headlines": [{"id": "i1", "publisher": "Invezz", "headline": "I one", "date": "2026-11-18T09:00:00+00:00",
+                    "url": "https://i/1"},
+                   {"id": "a1", "publisher": "ActionForex", "headline": "A one", "url": "https://a/1"}]},
+]
+META = {"i1": {"publisher": "Invezz", "date": "2026-11-18T09:00:00+00:00", "headline": "I one", "url": "https://i/1",
+               "language": "en"},
+        "i1de": {"publisher": "Invezz - German", "date": "2026-11-18T09:30:00+00:00", "headline": "I eins",
+                 "url": "https://i/de/1", "language": "de"},
+        "a1": {"publisher": "ActionForex", "date": "2026-11-18T07:00:00+00:00", "headline": "A one",
+               "url": "https://a/1", "language": "en"}}
+
+
+@pytest.fixture
+def stories_env(env, monkeypatch):
+    client, _, tmp = env
+    (tmp / "2026-11-18" / "stories.json").write_text(json.dumps(STORIES), encoding="utf-8")
+    (tmp / "2026-11-18" / "facts.json").write_text(json.dumps({"facts": [{"story_id": "s1"}, {"story_id": "s1"}]}),
+                                                   encoding="utf-8")
+    monkeypatch.setattr(api, "_article_meta", lambda: META)
+    return client, tmp
+
+
+def test_stories_ranked_with_articles_and_no_text(stories_env):
+    client, _ = stories_env
+    j = client.get("/api/stories/2026-11-18").json()
+    assert j["day"] == "2026-11-18" and [s["id"] for s in j["stories"]] == ["s1", "s2"]
+    s1, s2 = j["stories"]
+    assert {k: s1[k] for k in ("rank", "title", "topic", "importance", "outlets", "articleCount", "languages",
+                               "selected", "hasFacts", "factCount", "latest")} == {
+        "rank": 1, "title": "First", "topic": "currencies", "importance": 5, "outlets": ["Invezz", "ActionForex"],
+        "articleCount": 2, "languages": ["de", "en"], "selected": True, "hasFacts": True, "factCount": 2,
+        "latest": "2026-11-18"}
+    assert s1["articles"] == [
+        {"id": "i1", "publisher": "Invezz", "date": "2026-11-18", "headline": "I one", "url": "https://i/1",
+         "language": "en", "translationOf": None},
+        {"id": "i1de", "publisher": "Invezz - German", "date": "2026-11-18", "headline": "I eins",
+         "url": "https://i/de/1", "language": "de", "translationOf": "i1"},
+        {"id": "a1", "publisher": "ActionForex", "date": "2026-11-18", "headline": "A one", "url": "https://a/1",
+         "language": "en", "translationOf": None}]  # date of a1 filled from the data, its headline has none
+    assert s2["hasFacts"] is False and s2["factCount"] == 0
+    assert "text" not in json.dumps(j).replace("translationOf", "")  # never the article body
+
+
+def test_stories_without_facts_file_and_without_data(stories_env, monkeypatch):
+    client, tmp = stories_env
+    (tmp / "2026-11-18" / "facts.json").unlink()
+    monkeypatch.setattr(api, "_article_meta", lambda: {})
+    j = client.get("/api/stories/2026-11-18").json()
+    s1 = j["stories"][0]
+    assert not s1["hasFacts"] and s1["languages"] == [] and len(s1["articles"]) == 2  # no translation without data
+    assert s1["articles"][1]["date"] is None and s1["articles"][1]["language"] is None
+
+
+@pytest.mark.parametrize("day", ["2026-01-01", "abc", "..", "2026-11-18x"])
+def test_stories_unknown_day_is_404(stories_env, day):
+    client, _ = stories_env
+    assert client.get(f"/api/stories/{day}").status_code == 404

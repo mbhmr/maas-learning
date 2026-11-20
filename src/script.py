@@ -36,7 +36,7 @@ NOTHING_ON = {
     "de": "Zu {} steht heute nichts in unseren Quellen.",
     "nl": "Over {} staat vandaag niets in onze bronnen.",
 }
-WORDS_PER_SECOND = {"en": 2.1, "de": 1.9, "nl": 2.0}  # measured: 127 words in 62 s (EN), a little slower for DE/NL
+WORDS_PER_SECOND = {"en": 2.05, "de": 2.0, "nl": 1.7}  # measured 20.11. on Jessica/eleven_v3: en 1.9 to 2.3, de 2.06, nl 1.71
 LANG_NAME = {"en": "English", "de": "German", "nl": "Dutch"}
 # Filler a real host would never say. The model is told so; the code removes what slips through anyway.
 STOCK_PHRASES = re.compile(r"^\s*(next up|up next|here'?s a big one|big one coming|moving on|last but not least|"
@@ -127,7 +127,7 @@ def system_prompt(profile, day=None):
     hw = host_words(profile)
     frame = len(frame_texts(profile)["opening"].split()) + len(CLOSING[lang].split()) + hw  # hosts rarely use the cap
     words = max(20, int(profile["seconds"] * WORDS_PER_SECOND[lang]) - frame)
-    sign_off = (f"- sign_off: at most {hw} words, a warm goodbye in the same spirit. No numbers, no facts, no advice."
+    sign_off = (f"- sign_off: at most {hw} words, a warm goodbye in the same spirit, using the same name for the listener as the greeting. No numbers, no facts, no advice."
                 if profile["seconds"] >= NO_SIGN_OFF_SECONDS else "- sign_off: empty string (too short for one).")
     published = f" The briefing is published on {day}." if day else ""
     return f"""You write a spoken radio news briefing in {LANG_NAME[lang]} for this listener:
