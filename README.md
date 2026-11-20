@@ -42,7 +42,7 @@ pip install -r requirements.txt
 
 ```
 python one_story.py                       # first end-to-end test: US producer prices, two sources
-python prepare.py                         # prepare 13 to 18 Nov once (about 70 small-model calls, ~0.20 USD)
+python prepare.py                         # prepare 13 to 18 Nov once (picks up to 120 stories, macro and multi-outlet stories always; last run 20 Nov evening: 94 small-model calls, about 0.18 USD, 93 stories with facts)
 python prepare.py --stories-only          # grouping only, free
 uvicorn api:app --port 8000               # API for the React player
 cd web && npm install && npm run dev      # the player, http://localhost:5173 (proxies /api to port 8000)
@@ -77,7 +77,7 @@ audio keeps playing. `dropped` lists lines the checker removed, worth showing ("
 ## Sound (for the player)
 
 Three fixed sounds, made once with `python -m src.sound` (ElevenLabs Music and Sound Effects), served by
-`GET /api/sound/{name}.mp3`: play `jingle` once before the briefing starts, `verified` at the `end` of each claim
+`GET /api/sound/{name}.mp3`. **Today the player plays only the `jingle`**, once before the briefing starts. `verified` and `conflict` exist and are served, but the player does not play them yet. Intended use: `verified` at the `end` of each claim
 with `kind: "claim"`, and `conflict` instead when one of its sources has `conflict: true`. Any other name is 404.
 To let the listener hear the original wording, `POST /api/quote-audio` with `{"quote": source.quote, "lang": "en|de|nl"}`
 returns an MP3 of that quote in a calm voice. Send the `quote` exactly as it came in the briefing: only quotes of
@@ -89,11 +89,11 @@ checked facts are read aloud, anything else is 404, and each quote is generated 
 and compares every number heard in a claim's time window with the numbers in its checked text.
 `check_audio(mp3_path, claims, lang)` returns `{"checked", "ok", "mismatches": [{"claim_id", "text", "expected", "heard", "spoken"}]}` (`spoken` = the recognised words).
 Names from the claims go in as keyterms, the numbers never do, so the recogniser is not told what it should hear.
-The ElevenLabs key needs the Speech to Text permission. Not yet run on real audio (20.11.), only on simulated transcripts.
+The ElevenLabs key needs the Speech to Text permission. **It is not wired into the pipeline**: nothing calls it when a briefing is built, and it has not been run on real audio (20.11.), only on simulated transcripts.
 
 ## Evaluation
 
-`eval/REPORT.md` measures the pipeline against an answer key we built by hand (29 events, 143 articles, 46 facts,
+`eval/REPORT.md` measures the pipeline against an answer key we built by hand (29 events, 144 articles, 46 facts,
 48 spoken claims): no wrong number found, 83 % of spoken claims right in every detail, the rest were context errors
 (stale figure, missing country or speaker). The key quotes headlines of the event data, so it stays out of Git.
 

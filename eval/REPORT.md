@@ -1,13 +1,29 @@
 # Evaluation against our own answer key
 
-Measured on 20 Nov 2026, 17:45, with `output/2026-11-18/stories.json` (17:19), `facts.json` (17:23) and the ten briefings in `output/2026-11-18/briefings/` (17:40 to 17:43). Re-run any time, offline and free:
+Measured on 20 Nov 2026, 17:45, with `output/2026-11-18/stories.json` (17:19), `facts.json` (17:23) and the ten briefings in `output/2026-11-18/briefings/` (17:40 to 17:43). Re-run any time, offline and free (note: every new `prepare.py` run changes story ids and grouping, so a re-run gives different numbers than the ones below, and the hand-checked fact and claim verdicts no longer match; the key itself, matched by article id, stays valid for the grouping scores):
 
 ```
 .venv/Scripts/python eval/evaluate.py            # table
 .venv/Scripts/python eval/evaluate.py --json     # everything, machine-readable
 ```
 
-The key (`eval/answer_key.json`) was built by hand, not by a model: headlines, leads and article text of 13 to 18 Nov were read, and every event lists all its articles across outlets and languages (German and Dutch Invezz versions checked by headline). It holds 29 events with 143 articles (18 events with two or more articles, 11 single-article events that must stay apart), 46 facts and 51 spoken claims, each checked against the article text. Articles where reasonable editors could disagree are marked `ambiguous` and left out of the scoring. No article text is stored: ids, headlines, numbers and at most the first eight words of a quote.
+The key (`eval/answer_key.json`) was built by hand, not by a model: headlines, leads and article text of 13 to 18 Nov were read, and every event lists all its articles across outlets and languages (German and Dutch Invezz versions checked by headline). It holds 29 events with 144 articles (18 events with two or more articles, 11 single-article events that must stay apart), 46 facts and 51 spoken claims, each checked against the article text. Articles where reasonable editors could disagree are marked `ambiguous` and left out of the scoring. No article text is stored: ids, headlines, numbers and at most the first eight words of a quote.
+
+## Status after the fixes (20 Nov evening)
+
+Re-measured merging at 20:40 on the new prepare run (with the safer merge rule): pairwise precision **99.9 %** (was 97.7 %), recall **59.6 %** (was 52.4 %), events mixed with another key event **2 of 29** (was 4 stories), multi-article events split 7 of 18 (was 10). Importance-A events in the top 10 fell to 3 of 8 (was 5): ranking is the open weak spot. Facts and spoken claims were not re-judged by hand.
+
+Everything below was measured at 17:45, before commit 2377ab9 and the commits after it. Several listed gaps are now closed by code (the numbers below are the 17:45 state):
+
+- A person named in a spoken line must be named in one of its quotes (catches the unsupported Waller claim).
+- Time qualifiers in a line (after hours, premarket, "nachbörslich" and the like) must appear in one of its quotes (catches "after hours" vs regular trading).
+- Only the newest fact per entity and metric goes to the writer (catches the stale Anthropic price range).
+- At fact extraction, "is expected to" without who expects it, and macro figures without a country, are rejected (catches s29-f1 and s29-f3).
+- The `'buy' rating` advice filter no longer drops news about a rating.
+- Translated round-ups are filtered.
+- Headlines that share only a weak name (a country, a data series) no longer merge (targets the mixed stories s5, s17, s18, s26).
+
+Still open: pronoun-led quotes (Optimizely), a time with no date or event (world-news c8), and the split stories (recall).
 
 ## The numbers
 
@@ -30,7 +46,7 @@ Split (the same event in several stories):
 | Event | Stories | What went wrong |
 |---|---|---|
 | E03 Jensen Huang exit | 6 | s1 holds 31 of 40; "Nvidia stock outlook after Huang's exit" (+DE/NL), "Why is Nvidia falling over 2% on Wednesday" (+DE/NL, its lead is the House probe of Huang), Lori Huang's fortune, Denny's plaque, "185,000 demand his return" are on their own |
-| E06 Anthropic IPO | 5 + 1 missing | 9 of 20 in s2; IPO preview, index inclusion, "beat SpaceX", O'Leary are separate. "Anthropic receives its first 'Buy' rating" is in no story: the advice filter (`'buy' rating`) drops news about a rating |
+| E06 Anthropic IPO | 5 + 1 missing | 9 of 20 in s2; IPO preview, index inclusion, "beat SpaceX", O'Leary are separate. "Anthropic receives its first 'Buy' rating" is in no story: the advice filter (`'buy' rating`) dropped news about a rating (now fixed) |
 | E05 Microsoft outage | 5 | no two outlets merged; main story only rank 132 |
 | E04 FAA ground stop | 6 | 8 of 13 together, 5 IBTimes follow-ups alone |
 | E07 Nvidia Q3 results | 2 | "investors still need answers" (+DE/NL) apart from the results story |
@@ -53,33 +69,33 @@ Seen outside the key, same pattern: s69 silver plus an EUR/USD forecast, s56 two
 
 How it could have been noticed: none of this is visible in the briefing itself. A mixed story looks like a normal story with several sources; it shows up only when someone reads the headline list of a story, which is what this key does. Cheap guard: flag every merged story whose headlines share no proper name (Canada/Eurozone/UK, Kalshi/CFTC, Trump/China), and treat the same-author rule for translations as a hint, not a condition (E12).
 
-Also found: German and Dutch translations of round-ups escape the round-up filter, because the filter runs on the English headline before translations are attached ("5 Dinge vor Handelsbeginn", "5 dingen om te weten" are stories s354 and s355, both selected for facts).
+Also found (now fixed, translated round-ups are filtered): German and Dutch translations of round-ups escaped the round-up filter, because the filter ran on the English headline before translations were attached ("5 Dinge vor Handelsbeginn", "5 dingen om te weten" are stories s354 and s355, both selected for facts).
 
 ## Fact errors (3 of 46, all minor, no wrong number)
 
 | Fact (id when checked) | Claim | Why wrong | Could it have been noticed? |
 |---|---|---|---|
 | s2-f1 | "Anthropic has priced its IPO at $83 per share." | The article says the price comes from CNBC/Bloomberg sources and was not yet locked in a prospectus; stated as confirmed | Only by reading on: the hedge is two sentences after the quote |
-| s29-f1 | "The Federal Reserve is expected to raise ... by 25 basis points" | The article says markets price it at about 98 %; the claim drops "markets" and uses the exact phrasing the fact prompt forbids | Yes, by code: `unattributed` looks for named people only, not for "is expected to" |
-| s29-f3 | "Core CPI increased 0.3% ... in October" | Country missing (US); on a day with UK, Canada and Eurozone CPI this is ambiguous | Yes: a claim about CPI, GDP or rates without a country name |
+| s29-f1 | "The Federal Reserve is expected to raise ... by 25 basis points" | The article says markets price it at about 98 %; the claim drops "markets" and uses the exact phrasing the fact prompt forbids | Yes, by code: `unattributed` looks for named people only, not for "is expected to". **Now caught:** rejected at extraction |
+| s29-f3 | "Core CPI increased 0.3% ... in October" | Country missing (US); on a day with UK, Canada and Eurozone CPI this is ambiguous | Yes: a claim about CPI, GDP or rates without a country name. **Now caught:** rejected at extraction |
 
 ## Claim errors (8 of 48 spoken claims)
 
 | Briefing, claim | Spoken | Why wrong | Could it have been noticed? |
 |---|---|---|---|
-| jamal c9, mark c9, sofia c9 (and belegger c6 in Dutch) | "Anthropic maintained its proposed IPO price range of $70 to $78 per share." | **Stale.** True on 17 Nov, but Anthropic priced at $83 on 18 Nov, the day before the briefing. Both facts are in `facts.json` (s32-f4 and s2-f1); the script picked the old one | Not by the number check: the numbers are in the quote. A rule "for the same company and metric, speak only the newest fact" would catch it |
-| privatanleger c2 | "Nvidia-Aktien stiegen im nachbörslichen Handel um 1,6 Prozent" | After hours on 17 Nov Nvidia rose 2.47 % (article 7J3EQV); the 1.6 % was regular trading on 18 Nov (GG1XRT). The word "nachbörslich" was added | Not by the number check (1.6 is in the quote). A content check of time qualifiers (after hours, premarket, yesterday) against the quote would |
+| jamal c9, mark c9, sofia c9 (and belegger c6 in Dutch) | "Anthropic maintained its proposed IPO price range of $70 to $78 per share." | **Stale.** True on 17 Nov, but Anthropic priced at $83 on 18 Nov, the day before the briefing. Both facts are in `facts.json` (s32-f4 and s2-f1); the script picked the old one | Not by the number check: the numbers are in the quote. A rule "for the same company and metric, speak only the newest fact" would catch it. **Now caught:** only the newest fact per entity and metric reaches the writer |
+| privatanleger c2 | "Nvidia-Aktien stiegen im nachbörslichen Handel um 1,6 Prozent" | After hours on 17 Nov Nvidia rose 2.47 % (article 7J3EQV); the 1.6 % was regular trading on 18 Nov (GG1XRT). The word "nachbörslich" was added | Not by the number check (1.6 is in the quote). A content check of time qualifiers (after hours, premarket, yesterday) against the quote would. **Now caught:** a time qualifier must be in a quote |
 | world-news c7 | "Optimizely traced about $7,040 in cryptocurrency ..." | In the article "It traced" follows Report URI's finding, so the tracer is most likely Report URI (the article is not fully explicit) | Hardly: the quote starts with "It" and the model resolved the pronoun. Rule: a quote that starts with a pronoun needs the sentence before it |
 | world-news c8 | "Air traffic resumed at 8:15 p.m. ET after the system stabilised." | True, but which event (the FAA ground stop) and which day (13 Nov) are never said | Yes: a claim with a time and no date or no named subject |
-| fx-trader c8 | "Waller wants more hikes, and markets still price a 25 bp December move with about 98% probability." | Unsupported: the only source is the Williams article, which never mentions Waller; the 98 % followed Williams' remarks | Yes, by code: a person named in the claim must be named in one of its quotes |
+| fx-trader c8 | "Waller wants more hikes, and markets still price a 25 bp December move with about 98% probability." | Unsupported: the only source is the Williams article, which never mentions Waller; the 98 % followed Williams' remarks | Yes, by code: a person named in the claim must be named in one of its quotes. **Now caught** |
 
-All 8 pass our current checker, because every number is in its quote. The remaining errors are about time, entity and attribution, not numbers. That is the honest headline: numbers are solid, context is where it breaks.
+All 8 passed the checker as it was at measurement time (17:45), because every number is in its quote. The fixes listed at the top now catch three of the five claim rows (stale range, after hours, the Waller claim) and both fact rows; the pronoun row and the time-without-date row are still open. The remaining errors are about time, entity and attribution, not numbers. That is the honest headline: numbers are solid, context is where it breaks.
 
 ## Slide-ready sentences
 
 1. "We hand-checked 46 extracted facts and 48 spoken claims against the source articles: not one number was wrong, and 83 % of spoken claims were right in every detail."
 2. "Every error we found was context, not a figure: a stale IPO range, 'after hours' instead of regular trading, a missing country or speaker. So our next checker tests time, entity and attribution, not just numbers."
-3. "On 143 hand-labelled articles our story grouping is 98 % precise but finds only half of the duplicates: we would rather tell a story twice than mix two stories into one."
+3. "On 144 hand-labelled articles our story grouping is 98 % precise but finds only half of the duplicates: we would rather tell a story twice than mix two stories into one."
 
 ## Limits
 
