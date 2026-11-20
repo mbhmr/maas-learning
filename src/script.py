@@ -29,6 +29,8 @@ NOTHING_ON = {
 }
 WORDS_PER_SECOND = {"en": 2.1, "de": 1.9, "nl": 2.0}  # measured: 127 words in 62 s (EN), a little slower for DE/NL
 LANG_NAME = {"en": "English", "de": "German", "nl": "Dutch"}
+CHEERS = {"en": '"Next up!", "Here is a big one!"', "de": '"Weiter geht es!", "Jetzt wird es spannend!"',
+          "nl": '"Door naar het volgende!", "Nu wordt het spannend!"'}
 SECONDS_PER_STORY = 25
 FACTS_PER_STORY = 4
 
@@ -84,19 +86,22 @@ Rules:
 - At most {words} words in total. Stories in the given order. Fewer facts told well beat many facts listed.
 - Written for the ear: short sentences, one per line, a punchy transition when a new story starts.
 - Sound like a very happy, wide-awake morning radio host full of energy, so nobody falls asleep even on dry
-  topics: upbeat transitions ("Next up!", "Here's a big one!"), exclamation marks, talk directly to the
+  topics: upbeat transitions ({CHEERS[lang]}), exclamation marks, talk directly to the
   listener, explain why a story matters for them in plain words, without advice.
 - The energy is in HOW you say it, never in WHAT happened: keep the source's verbs and size ("rose" stays
   "rose", never "soared" or "exploded"), no drama the quote does not have.
-- Every line lists the fact_ids it relies on in the fact_ids field, never in the text.
-  A line without fact_ids may only be a short transition of at most 8 words without any number.
+- Every line lists the fact_ids it relies on in the fact_ids field, never in the text. Every sentence about the
+  news needs fact_ids, also the first sentence of a story. A line without fact_ids may only be a short cheerful
+  transition of at most 8 words without any number and without news content, in {LANG_NAME[lang]}
+  ({CHEERS[lang]}).
 - Every number you say must appear in one of the quoted source sentences ("... says:"); numbers that only
   appear in the fact summary are NOT allowed. At most two numbers per line. Words like "highest", "record"
   or "first time" only if the quote says so. Never compare or compute numbers yourself (no "doubled",
   "three times"). Say dates the way the quote says them ("on Thursday").
 - Write numbers as digits with the unit written out ("0.3 percent" / "0,3 Prozent") and with the period.
 - Name an outlet at most once per story. Always name both when a fact is marked CONFLICT and say they differ.
-- No recommendations, no buy or sell, no predictions of your own, no cheering for a stock or market move.
+- No recommendations, no buy or sell, never what listeners can or should do with their money, no predictions
+  of your own, no cheering for a stock or market move. Say whose shares moved (the company, not a person).
 - No greeting and no closing, those are added separately."""
 
 
@@ -187,7 +192,14 @@ FACT_ID = re.compile(r"\s*[\[(]?\bs\d+-f\d+\b[\])]?[.,;]?")
 def check_script(raw_lines, facts, lang):
     by_id = {f["id"]: f for f in facts}
     kept, dropped = [], []
+    # "Next up! Gold fell 2%." -> "Next up!" stays as a transition, the claim is checked on its own
+    split = []
     for line in raw_lines:
+        parts = [p for p in re.split(r"(?<=!)\s+", line["text"].strip()) if p]
+        for n, p in enumerate(parts):  # a leading cheer carries no claim, so it gets no source link
+            cheer = n < len(parts) - 1 and len(p.split()) <= 5 and not numbers(p, lang)
+            split.append({**line, "text": p, "fact_ids": [] if cheer else line["fact_ids"]})
+    for line in split:
         line = {**line, "text": FACT_ID.sub("", line["text"]).strip()}  # ids belong in fact_ids, never in speech
         ids = [i for i in line["fact_ids"] if i in by_id]
         spoken = numbers(line["text"], lang)
