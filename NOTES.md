@@ -97,7 +97,7 @@ Die drei Personen ordnen sich die Rollen beim Kick-off zu. Jede Rolle prüft ans
 | Naomi (Lead) mit Matthias | Produkt, Pitch, Video, Abgabe | Folien, Video, Branch `pitch` | Käufer und Redaktionsablauf, Kostenfolie, Pitch-Skript, 3-Minuten-Video, BuilderBase-Abgabe |
 
 Gegenseitig prüfen: Danni hört die Fakten gegen, Naomi probiert die App wie die Jury, Matthias prüft die Zahlen auf den Folien.
-Schnittstelle zwischen Pipeline und Oberfläche: die API in `api.py` (`POST /api/briefing`, Format im README). Danni ändert nur `web/`, Matthias den Rest (auch `src/tts.py`, seit 20.11. 16:20), so gibt es keine Konflikte. `app.py` (Streamlit) bleibt als Ersatz, bis `web/` läuft.
+Schnittstelle zwischen Pipeline und Oberfläche: die API in `api.py` (`POST /api/briefing`, Format im README). Danni ändert nur `web/`, Matthias den Rest (auch `src/tts.py`, seit 20.11. 16:20), so gibt es keine Konflikte. `app.py` (Streamlit) bleibt als Ersatz, bis `web/` läuft. **Seit 20.11. abends baut Matthias mit Claude Code auch in `web/`** (Design, Newsroom-Ansicht, Ausgabe-Schalter, Jingle); wer dort weiterbaut, vorher `git pull` und kurz im Teamchat Bescheid sagen.
 
 **Entscheidungen 20.11. 16:20** (Sourcera nicht erreichbar, darum selbst entschieden):
 - **Zeitfenster:** Artikel vom 13. bis 18.11., das Briefing gilt für den Morgen des 19.11. Grund: so liegen mehrere Tage einer laufenden Story zusammen, und die Jury-Musterlösung bündelt vermutlich über Tage.

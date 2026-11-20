@@ -13,9 +13,11 @@ and every spoken fact links to the article it came from.
 | Extract 3 to 6 facts per selected story, each with article ID and a verbatim quote | `src/facts.py` | small model |
 | Check every fact: quote must be in the article, value must be in the quote, mark conflicting sources | `src/facts.py` | code |
 | Write the script for one listener from the checked facts | `src/script.py` | small model |
-| Check every line: it must cite facts, and every spoken number must be in them, otherwise it is removed | `src/script.py` | code |
-| Fixed opening (AI voice disclosure) and closing (not investment advice) | `src/script.py` | code |
-| Speech from exactly the checked transcript | `src/tts.py` | ElevenLabs |
+| Check every line in three stages: code (every number, superlative and source must be in the cited quotes; no relative dates, no repeats, no overlong sentences), a judge model (does the quote really say this?), then the length budget | `src/script.py` | code + small model |
+| Repair round: blocked lines go back to the writer once, with the reason, and are checked again from the start | `src/script.py` | small model |
+| Greeting and sign-off call the listener by name; short AI voice disclosure and "not investment advice" | `src/script.py` | code |
+| Speech from exactly the checked transcript, with word timestamps for the live highlight | `src/tts.py` | ElevenLabs v3 |
+| Shared editions: listeners with the same language, length, depth and interest segment share one recorded body, only the greeting is personal | `src/editions.py` | code + small model |
 
 `prepare.py` runs once per news day, the app reuses its facts for every listener. Every model and voice call is
 logged to `output/usage.jsonl` (tokens, characters, USD) for the cost estimate.
@@ -42,18 +44,28 @@ pip install -r requirements.txt
 python one_story.py                       # first end-to-end test: US producer prices, two sources
 python prepare.py                         # prepare 13 to 18 Nov once (about 70 small-model calls, ~0.20 USD)
 python prepare.py --stories-only          # grouping only, free
-uvicorn api:app --port 8000               # API for the React player in web/
+uvicorn api:app --port 8000               # API for the React player
+cd web && npm install && npm run dev      # the player, http://localhost:5173 (proxies /api to port 8000)
 streamlit run app.py                      # fallback app: describe a listener, get the briefing
+python eval/evaluate.py                   # score against our hand-built answer key (needs eval/answer_key.json, kept local)
 ```
+
+The player has two views: **Briefing** (presets, a wildcard listener with an optional shared-edition switch, player,
+transcript with a source per sentence, evidence panel, and the lines the checker blocked) and **Newsroom** (every
+story of the day with its outlets, languages and articles, to compare our grouping with the raw feed).
 
 ## API (for the player)
 
-`POST /api/briefing` with `{"day": "2026-11-18", "profile": {"name", "language": "en|de|nl", "seconds", "depth", "description"}}`
-returns the briefing. Same profile again = served from cache, no new cost.
+`POST /api/briefing` with `{"day": "2026-11-18", "profile": {"name", "language": "en|de|nl", "seconds", "depth", "description"}, "mode": "personal|edition"}`
+returns the briefing. Same profile again = served from cache, no new cost. `personal` (default) chooses stories and
+writes a script for this one listener; `edition` reuses the shared body of the listener's segment and adds a personal
+greeting, the response then carries `edition: {key, segment, label, language, seconds, depth, listeners}`.
+At most 4 briefings are built at once and 60 per hour; beyond that the API answers 429 with `Retry-After`.
+`GET /api/stories/{day}` lists every story of the day, ranked, with its articles (headline, outlet, link, no article text).
 
 ```
 { "audioUrl": "/api/audio/2026-11-18/<key>.mp3",
-  "claims": [ { "id": "c3", "text": "spoken sentence", "kind": "claim|transition|disclosure",
+  "claims": [ { "id": "c3", "text": "spoken sentence", "kind": "host|disclosure|claim|context|transition",
                 "start": 12.4, "end": 16.9,            // seconds in the MP3; null if no audio or no timing
                 "sources": [ { "articleId", "publisher", "date", "url", "quote", "evidenceUrl", "value", "conflict",
                                "translations": {"de": {"url", "publisher"}} } ] } ],
@@ -78,6 +90,12 @@ and compares every number heard in a claim's time window with the numbers in its
 `check_audio(mp3_path, claims, lang)` returns `{"checked", "ok", "mismatches": [{"claim_id", "text", "expected", "heard", "spoken"}]}` (`spoken` = the recognised words).
 Names from the claims go in as keyterms, the numbers never do, so the recogniser is not told what it should hear.
 The ElevenLabs key needs the Speech to Text permission. Not yet run on real audio (20.11.), only on simulated transcripts.
+
+## Evaluation
+
+`eval/REPORT.md` measures the pipeline against an answer key we built by hand (29 events, 143 articles, 46 facts,
+48 spoken claims): no wrong number found, 83 % of spoken claims right in every detail, the rest were context errors
+(stale figure, missing country or speaker). The key quotes headlines of the event data, so it stays out of Git.
 
 ## Working together
 
