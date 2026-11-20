@@ -6,3 +6,5 @@ output/
 .venv/
 __pycache__/
 *.pyc
+# hand-built answer key quotes headlines of the event data
+eval/answer_key.json
