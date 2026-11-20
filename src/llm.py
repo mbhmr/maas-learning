@@ -7,7 +7,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+ENV = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(ENV)
 OUTPUT = Path(__file__).resolve().parent.parent / "output"
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
@@ -20,6 +21,7 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
+        load_dotenv(ENV)  # read again: keys may have been added while the app was running
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is missing. Copy .env.example to .env and fill it in.")
         _client = OpenAI()

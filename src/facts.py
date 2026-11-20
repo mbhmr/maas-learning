@@ -31,22 +31,36 @@ _WORDS = {
     "thousand": 1e3, "million": 1e6, "millions": 1e6, "billion": 1e9, "billions": 1e9, "trillion": 1e12,
     "tausend": 1e3, "million": 1e6, "millionen": 1e6, "milliarde": 1e9, "milliarden": 1e9, "billion": 1e9,
     "elf": 11, "dreizehn": 13, "fünfzehn": 15, "dreißig": 30, "vierzig": 40, "fünfzig": 50,
-    "half": 0.5, "halved": 0.5, "quarter": 0.25, "third": 1 / 3, "twice": 2, "double": 2, "doubled": 2,
+    "half": 0.5, "halved": 0.5, "twice": 2, "double": 2, "doubled": 2,
     "triple": 3, "tripled": 3, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "sechs": 6, "sieben": 7,
     "acht": 8, "neun": 9, "zehn": 10, "zwölf": 12, "zwanzig": 20, "hundert": 100, "halb": 0.5,
-    "halbiert": 0.5, "hälfte": 0.5, "viertel": 0.25, "drittel": 1 / 3, "doppelt": 2, "verdoppelt": 2,
+    "halbiert": 0.5, "hälfte": 0.5, "doppelt": 2, "verdoppelt": 2,
     "verdreifacht": 3, "twee": 2, "drie": 3, "vier": 4, "tien": 10, "helft": 0.5, "verdubbeld": 2,
 }
 
 
+# Fractions only as fractions, not "third quarter" (a period) or "Viertel" in "Stadtviertel".
+_FRACTIONS = [(r"\b(a|one) quarter of\b", 0.25), (r"\b(a|one) third of\b", 1 / 3), (r"\bein viertel\b", 0.25),
+              (r"\bein drittel\b", 1 / 3), (r"\btwo thirds\b", 2 / 3), (r"\bzwei drittel\b", 2 / 3)]
+# Numbers that are part of a name, never a figure: S&P 500, Nasdaq 100, Q3, G7, Nikkei 225 ...
+_NAMES = re.compile(r"\b(s&p\s?500|nasdaq(\s?100)?|ftse\s?\d+|dax\s?\d+|stoxx\s?\d+|nikkei\s?225|russell\s?\d+|"
+                    r"cac\s?40|ibex\s?35|aex|q[1-4]|h[12]|g\d{1,2}|covid-19|f-\d+|\d+(st|nd|rd|th))\b", re.I)
+
+
 def numbers(text, lang="en"):
     """All numbers in a text as floats. '6.5%' -> 6.5, German '6,5 %' -> 6.5, '1,000' -> 1000, 'doubled' -> 2."""
+    text = _NAMES.sub(" ", text)
+    # "$7.5B", "¥15.4T", "€3bn", "430M" -> the same scale word as when it is spoken out
+    for short, word in (("tn|t", "trillion"), ("bn|b", "billion"), ("mn|m", "million"), ("k", "thousand")):
+        text = re.sub(rf"(?<=\d)\s?(?:{short})\b", f" {word}", text, flags=re.I)
     if lang == "de":
         text = re.sub(r"(?<=\d)\.(?=\d{3}\b)", "", text).replace(",", ".")
     else:
         text = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
     found = {float(n) for n in re.findall(r"\d+(?:\.\d+)?", text)}
-    found |= {float(_WORDS[w]) for w in re.findall(r"[a-zäöüß]+", text.lower()) if w in _WORDS}
+    low = text.lower()
+    found |= {float(_WORDS[w]) for w in re.findall(r"[a-zäöüß]+", low) if w in _WORDS}
+    found |= {v for pattern, v in _FRACTIONS if re.search(pattern, low)}
     return found
 
 
@@ -105,12 +119,30 @@ def verify_facts(story, raw_facts, articles):
                 rejected.append({"fact": f["claim"], "why": f"value {s['value_in_source']} not in quote"})
                 continue
             good.append({**s, "publisher": art["publisher"], "url": art["url"], "date": art["date"]})
+        good = _one_per_article(good, f["value"])
         if not good:
             continue
         verified.append({
             "id": f"{story['id']}-f{n + 1}", "story_id": story["id"], "metric": f["metric"],
             "claim": f["claim"], "value": f["value"], "unit": f["unit"], "period": f["period"],
-            "importance": f["importance"], "sources": good,
-            "conflict": len({frozenset(numbers(s["value_in_source"])) for s in good}) > 1,
+            "importance": f["importance"], "sources": good, "conflict": _conflict(good),
         })
     return verified, rejected
+
+
+def _one_per_article(sources, value):
+    """One article cannot disagree with itself: keep its source that carries the fact's value."""
+    keep = {}
+    for s in sources:
+        old = keep.get(s["article_id"])
+        if old is None or (numbers(value) <= numbers(s["value_in_source"]) and
+                           not numbers(value) <= numbers(old["value_in_source"])):
+            keep[s["article_id"]] = s
+    return list(keep.values())
+
+
+def _conflict(sources):
+    """Different outlets disagree only if no figure is shared: '6.3% to 6.5%' and '6.5%' agree, 6.9% and 6.8% do not."""
+    sets = [numbers(s["value_in_source"]) for s in sources]
+    sets = [s for s in sets if s]
+    return len(sets) > 1 and not set.intersection(*sets)

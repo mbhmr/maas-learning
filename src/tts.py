@@ -2,14 +2,16 @@
 import os
 
 import httpx
+from dotenv import load_dotenv
 
-from .llm import log_usage
+from .llm import ENV, log_usage
 
 # "George", a premade ElevenLabs voice. Override with ELEVENLABS_VOICE_ID.
 DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"
 
 
 def speak(text, mp3_path):
+    load_dotenv(ENV)
     key = os.getenv("ELEVENLABS_API_KEY")
     if not key:
         raise RuntimeError("ELEVENLABS_API_KEY is missing in .env.")

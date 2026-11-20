@@ -2,6 +2,7 @@
 import json
 import re
 from pathlib import Path
+from urllib.parse import quote as urlquote
 
 from .script import CLOSING, OPENING, write_script
 from .tts import speak
@@ -9,6 +10,14 @@ from .tts import speak
 
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "listener"
+
+
+def evidence_url(url, quote):
+    """Link that opens the original article and highlights the quote (text fragment, Chrome/Edge/Safari).
+
+    We never show the article itself (licence), only the short verified quote and this link.
+    """
+    return f"{url}#:~:text={urlquote(quote.strip().rstrip('.'), safe='')}"
 
 
 def build_briefing(profile, stories, facts, out_dir, audio=True):
@@ -33,7 +42,9 @@ def build_briefing(profile, stories, facts, out_dir, audio=True):
                     continue
                 seen.add(s["article_id"])
                 sources.append({"articleId": s["article_id"], "publisher": s["publisher"], "url": s["url"],
-                                "value": s["value_in_source"], "conflict": f["conflict"]})
+                                "value": s["value_in_source"], "conflict": f["conflict"],
+                                "quote": s["quote"], "evidenceUrl": evidence_url(s["url"], s["quote"]),
+                                "translations": s.get("translations", {})})
         claims.append({"text": line["text"], "sources": sources, "kind": "claim" if sources else "transition"})
     claims.append({"text": CLOSING[lang], "sources": [], "kind": "disclosure"})
 

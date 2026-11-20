@@ -39,7 +39,8 @@ def load_json(path):
 
 
 def prepared_days():
-    return sorted((p.parent.name for p in OUTPUT.glob("*/facts.json")), reverse=True)
+    return sorted((p.parent.name for p in OUTPUT.glob("*/facts.json") if (p.parent / "stories.json").exists()),
+                  reverse=True)
 
 
 def usage_summary():
@@ -71,11 +72,14 @@ def show_briefing(b):
         if c["kind"] == "disclosure":
             st.markdown(f"*{c['text']}*")
             continue
-        links = []
+        links, quotes = [], []
         for s in c["sources"]:
             mark = " ⚠️" if s.get("conflict") else ""
-            links.append(f"[{s['publisher']}: {s['value']}{mark}]({s['url']})" if s["value"] else
-                         f"[{s['publisher']}]({s['url']})")
+            target = s.get("evidenceUrl") or s["url"]  # opens the original and highlights the passage
+            label = f"{s['publisher']}: {s['value']}{mark}" if s["value"] else s["publisher"]
+            links.append(f"[{label}]({target})")
+            if s.get("quote"):
+                quotes.append(f"> “{s['quote']}” ({s['publisher']}, [open at this passage]({target}))")
             for lang, t in (s.get("translations") or {}).items():
                 if lang == p["language"]:
                     links.append(f"[{t['publisher']}]({t['url']})")
@@ -86,6 +90,9 @@ def show_briefing(b):
         if conflict:
             line += "  \n<small>⚠️ Sources give different values. Both are named.</small>"
         st.markdown(line, unsafe_allow_html=True)
+        if quotes:
+            with st.expander("Evidence"):
+                st.markdown("\n\n".join(quotes))
 
     with st.expander("How this briefing was made"):
         st.markdown("**Stories, most important first** (several outlets on one event are merged into one story):")
