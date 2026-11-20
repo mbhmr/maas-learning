@@ -135,7 +135,8 @@ def system_prompt(profile, day=None):
 Depth: {profile['depth']}.{published}
 
 What you return:
-- greeting: at most {hw} words, the host's hello to THIS listener, naming who they are and what this briefing
+- greeting: at most {hw} words, the host's hello to THIS listener, calling them by their profile name exactly as
+  given (never a different role word), naming who they are and what this briefing
   is about in general words (e.g. "Morning, trader, central banks are running the show!"). No numbers, no
   company or person names, no events, no claims. Do not say it is a briefing or an AI, the code adds that.
 {sign_off}
@@ -150,7 +151,7 @@ Two kinds of lines:
   or decisions. Vary the wording from story to story, never the same opening twice.
 
 How a story is told:
-- Fewer facts told well beat many facts listed. Short sentences (at most about 25 words), written for the ear.
+- Fewer facts told well beat many facts listed. Short sentences (at most about 25 words, never over 40: longer lines are dropped by code), one story per sentence, written for the ear.
 - Open each story with its most important and newest fact as a full sentence that starts with who or what
   ("US producer prices rose 0.3 percent in October"). Never start a line with a number ("0.3 percent, not
   0.4 percent ..." is wrong).
@@ -249,11 +250,55 @@ def write_script(profile, stories, facts):
             frame[line["role"]] = line["text"]
     kept = [line for line in judged_lines if not line.get("role")]
     kept, cut = fit_length(kept, profile, sum(len(t.split()) for t in frame.values()))
+    kept, orphans = arrange(kept, facts)
     if missing:
         kept.append({"text": NOTHING_ON[lang].format(", ".join(missing)), "fact_ids": [], "kind": "transition"})
     story_of = {f["id"]: f["story_id"] for f in facts}
     spoken = {story_of[i] for line in kept for i in line["fact_ids"]}
-    return kept, dropped + judged + cut, [s for s in chosen if s["id"] in spoken], frame
+    frame = {k: tidy(v) for k, v in frame.items()}
+    return kept, dropped + judged + cut + orphans, [s for s in chosen if s["id"] in spoken], frame
+
+
+def tidy(text):
+    """No space before punctuation, no dash as a pause (it reads badly on screen and in speech)."""
+    text = re.sub(r"\s*[—–]\s*(?=\D)", ", ", text or "")
+    return re.sub(r"\s+([!?.,;:])", r"\1", text).strip()
+
+
+def arrange(lines, facts):
+    """A context line only stays if a claim of its story is spoken, and it goes right after that story's claims."""
+    story_of = {f["id"]: f["story_id"] for f in facts}
+    claims_of = {}
+    for line in lines:
+        if line.get("kind", "claim") == "claim":
+            claims_of.setdefault(story_of[line["fact_ids"][0]], []).append(line)
+    out, orphans = [], []
+    for line in lines:
+        line = {**line, "text": tidy(line["text"])}
+        if line.get("kind") != "context":
+            out.append(line)
+            continue
+        story = story_of[line["fact_ids"][0]]
+        if story not in claims_of:
+            orphans.append({**line, "why": "context for a story whose news was not spoken"})
+            continue
+        last = max(n for n, x in enumerate(out) if x.get("kind", "claim") == "claim"
+                   and story_of[x["fact_ids"][0]] == story) if any(
+            x.get("kind", "claim") == "claim" and story_of[x["fact_ids"][0]] == story for x in out) else None
+        if last is None:  # the story's claims come later: hold the line until they are placed
+            claims_of[story].append(None)
+            out.append({**line, "_wait": story})
+        else:
+            out.insert(last + 1, line)
+    # place held context lines after their story's last claim
+    held = [x for x in out if x.get("_wait")]
+    out = [x for x in out if not x.get("_wait")]
+    for line in held:
+        story = line.pop("_wait")
+        last = max(n for n, x in enumerate(out) if x.get("kind", "claim") == "claim"
+                   and story_of[x["fact_ids"][0]] == story)
+        out.insert(last + 1, line)
+    return out, orphans
 
 
 def fit_length(lines, profile, reserved=None):
@@ -420,6 +465,9 @@ def check_script(raw_lines, facts, lang):
             continue
         if BARE_NUMBER_START.match(line["text"]):
             dropped.append({**line, "why": "starts with a bare number"})
+            continue
+        if len(line["text"].split()) > 45:  # one sentence, one story: a listener cannot scroll back
+            dropped.append({**line, "why": "too long for the ear (over 45 words)"})
             continue
         if lang != "en" and ENGLISH_GIVEAWAY.search(line["text"]):
             dropped.append({**line, "why": "English words in a non-English line"})

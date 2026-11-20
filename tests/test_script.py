@@ -376,3 +376,21 @@ def test_dash_pause_becomes_comma_but_range_stays():
     assert script.DASH.sub(", ", "from 3.75 - 4.00") == "from 3.75 - 4.00"
     out, _ = script.check_host("Hello, trader — rates are in play!", "en", 20)
     assert out == "Hello, trader, rates are in play!"
+
+
+def test_tidy_removes_space_before_punctuation_and_pause_dashes():
+    from src.script import tidy
+    assert tidy("core rose to 2.6% !") == "core rose to 2.6%!"
+    assert tidy("Hello—world") == "Hello, world"
+    assert tidy("the 8–9 December meeting") == "the 8–9 December meeting"
+
+
+def test_arrange_drops_orphan_context_and_moves_context_after_its_claims():
+    from src.script import arrange
+    facts = [{"id": "a", "story_id": "s1"}, {"id": "b", "story_id": "s2"}]
+    lines = [{"text": "Why it matters.", "fact_ids": ["a"], "kind": "context"},
+             {"text": "News.", "fact_ids": ["a"], "kind": "claim"},
+             {"text": "Orphan.", "fact_ids": ["b"], "kind": "context"}]
+    kept, orphans = arrange(lines, facts)
+    assert [x["text"] for x in kept] == ["News.", "Why it matters."]
+    assert orphans[0]["text"] == "Orphan." and "not spoken" in orphans[0]["why"]
