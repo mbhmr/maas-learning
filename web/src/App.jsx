@@ -320,6 +320,7 @@ export default function App() {
   const [sheet, setSheet] = useState(false)
   const [view, setView] = useState('briefing')
   const [theme, setTheme] = useState(() => store.get('theme', ''))
+  const [span, setSpan] = useState('')  // '' = the whole prepared window, '1' = last day, '3' = last three days
   const audio = useRef(null)
   const jingle = useRef(null)
   const lineRefs = useRef({})
@@ -339,7 +340,7 @@ export default function App() {
     const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 6000)
     try {
       const { mode = 'personal', ...prof } = p
-      const b = await api('/api/briefing', { day: dayId, profile: { ...prof, name: prof.name || 'Listener' }, mode })
+      const b = await api('/api/briefing', { day: dayId, profile: { ...prof, name: prof.name || 'Listener', ...(span ? { days: Number(span) } : {}) }, mode })
       setBriefing(b); setTime(0); setPlaying(false)
     } catch (e) {
       setError(e.message)
@@ -347,6 +348,13 @@ export default function App() {
       clearInterval(timer); setBusy(false)
     }
   }
+
+  // a new news span rewrites the current listener's briefing (cached per span after the first time)
+  const firstSpan = useRef(true)
+  useEffect(() => {
+    if (firstSpan.current) { firstSpan.current = false; return }
+    if (preset !== 'custom' || briefing) generate()
+  }, [span]) // eslint-disable-line
 
   // first visit: show the cached trader briefing right away (no new cost)
   useEffect(() => { if (dayId && !briefing) generate(PRESETS[0].profile) }, [dayId]) // eslint-disable-line
@@ -456,6 +464,13 @@ export default function App() {
                 {days.map(d => <option key={d} value={d}>{longDay(d)}</option>)}
               </select></label>
             : <p>{dayId ? longDay(dayId) : ''}</p>}
+          {view === 'briefing' && (
+            <label className="daypick"><span className="sr">News from</span>
+              <select value={span} disabled={busy} onChange={(e) => setSpan(e.target.value)}>
+                <option value="">News of the whole week</option>
+                <option value="3">News of the last 3 days</option>
+                <option value="1">News of the last day</option>
+              </select></label>)}
         </div>
         <nav className="views" aria-label="View">
           <button className={view === 'briefing' ? 'on' : ''} onClick={() => setView('briefing')}>Briefing</button>

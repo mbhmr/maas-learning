@@ -23,7 +23,7 @@ import time
 from collections import deque
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,6 +48,8 @@ class Profile(BaseModel):
     seconds: int = 90
     depth: str = Field("medium", max_length=80)
     description: str = Field(..., min_length=10, max_length=1000)
+    # 1 = the last day only, 3 = the last three days; None = the whole prepared window (the default before 21.11.)
+    days: Optional[int] = Field(None, ge=1, le=14)
 
 
 class Request(BaseModel):
@@ -114,6 +116,8 @@ def _build_edition(folder, profile, out, audio):
 async def briefing(req: Request):
     folder = _day(req.day)
     profile = req.profile.model_dump()
+    if profile.get("days") is None:
+        profile.pop("days")  # unset stays out of the cache key, so briefings made before the field keep their cache
     if profile["language"] not in ("en", "de", "nl") or not 20 <= profile["seconds"] <= 300:
         raise HTTPException(422, "language must be en, de or nl and seconds between 20 and 300")
     hashed = profile if req.mode == "personal" else {**profile, "mode": req.mode}

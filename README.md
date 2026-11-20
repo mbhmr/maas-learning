@@ -67,12 +67,14 @@ marked, and each story's articles one click away; a story's optional `reason` fi
 
 ## API (for the player)
 
-`POST /api/briefing` with `{"day": "2026-11-18", "profile": {"name", "language": "en|de|nl", "seconds", "depth", "description"}, "mode": "personal|edition"}`
+`POST /api/briefing` with `{"day": "2026-11-18", "profile": {"name", "language": "en|de|nl", "seconds", "depth", "description", "days"}, "mode": "personal|edition"}`
+(`days` is optional: 1 = the last day, 3 = the last three days, left out = the whole prepared window)
 returns the briefing. Same profile again = served from cache, no new cost. `personal` (default) chooses stories and
 writes a script for this one listener; `edition` reuses the shared body of the listener's segment and adds a personal
 greeting, the response then carries `edition: {key, segment, label, language, seconds, depth, listeners}`.
 At most 4 briefings are built at once and 60 per hour; beyond that the API answers 429 with `Retry-After`.
-`GET /api/stories/{day}` lists every story of the day, ranked, with its articles (headline, outlet, link, no article text).
+`GET /api/stories/{day}` lists every story of the day, ranked, with its articles (headline, outlet, link, no article text)
+and `why`, the parts of its rank score.
 
 ```
 { "audioUrl": "/api/audio/2026-11-18/<key>.mp3",
