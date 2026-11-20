@@ -573,3 +573,12 @@ def test_dedupe_over_the_whole_briefing():
              {"text": "Das zählt für dich.", "kind": "context", "fact_ids": ["s1-f1"]}]
     kept, dropped = script.dedupe(lines, [f1, f2], "de")
     assert [k["text"][-10:] for k in kept] == [lines[0]["text"][-10:], lines[2]["text"][-10:]] and len(dropped) == 1
+
+
+def test_dedupe_keeps_one_context_line_per_story():
+    f1 = mkfact("s1-f1", "s1", "Anthropic priced its IPO at $83 per share.")
+    lines = [{"text": "Anthropic priced at 83 dollars.", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "That matters for you.", "kind": "context", "fact_ids": ["s1-f1"]},
+             {"text": "That shows how big it is.", "kind": "context", "fact_ids": ["s1-f1"]}]
+    kept, dropped = script.dedupe(lines, [f1], "en")
+    assert len(kept) == 2 and dropped[0]["why"] == "second context line for one story"

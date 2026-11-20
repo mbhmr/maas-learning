@@ -302,7 +302,7 @@ def write_script(profile, stories, facts):
 
 REPAIRABLE = ("content check", "numbers not in sources", "too long for the ear", "starts with a bare number",
               "superlative not in sources", "English words", "context line with a figure",
-              "person not in its quotes", "time qualifier not in its quotes", "relative date")  # a rewrite can drop the name or the qualifier
+              "person not in its quotes", "time qualifier not in its quotes")  # a rewrite can drop the name or the qualifier
 REPAIR_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["lines"],
                  "properties": {"lines": SCHEMA["properties"]["lines"]}}
 
@@ -320,8 +320,7 @@ def repair(profile, chosen, facts, day, kept, dropped, judged):
                      f'{d["why"]}' for d in blocked)
     user = (facts_prompt(chosen, facts, day) + "\n\nThe checker blocked these lines. Rewrite each one so it passes: "
             "one short sentence (at most 30 words), only what its quotes say, the same fact ids, no figure in a "
-            "context line. A relative time word (last week, Tuesday) goes: name a date only if a quote states "
-            "it, otherwise leave the time out. Leave out a line you cannot fix fully.\n" + todo)
+            "context line. Leave out a line you cannot fix fully.\n" + todo)
     try:
         out = ask_json("repair", system_prompt(profile, day and _day(day)), user, REPAIR_SCHEMA, model=SCRIPT_MODEL)
     except Exception:  # the briefing is still valid without the repair
@@ -367,9 +366,15 @@ def dedupe(lines, facts, lang):
     themselves. A claim is a repeat when an earlier claim of the same story shares one of its figures."""
     story_of = {f["id"]: f["story_id"] for f in facts}
     kept, dropped = [], []
+    told = set()  # stories that already have their "why it matters" line
     for line in lines:
+        stories = {story_of.get(i) for i in line["fact_ids"]}
+        if line.get("kind") == "context":
+            if stories & told:
+                dropped.append({**line, "why": "second context line for one story"})
+                continue
+            told |= stories
         if line.get("kind", "claim") == "claim":
-            stories = {story_of.get(i) for i in line["fact_ids"]}
             figures = numbers(line["text"], lang)
             if figures and any(k.get("kind", "claim") == "claim" and stories & {story_of.get(i) for i in k["fact_ids"]}
                                and figures & numbers(k["text"], lang) for k in kept):
