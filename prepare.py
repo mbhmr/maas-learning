@@ -3,7 +3,8 @@
   load -> group (code) -> merge ongoing stories and rate importance (one small-model call on headlines, checked
   by code) -> pick stories (code) -> facts per story (small model, checked by code)
 
-Run:  .venv/Scripts/python prepare.py                       (13 to 18 November, briefing for the 19th)
+Run:  .venv/Scripts/python prepare.py                       (the last 6 days of data/, here 13 to 18 November)
+      .venv/Scripts/python prepare.py --data D:/newstex        (your own Newstex .jsonl files, any file names)
       .venv/Scripts/python prepare.py --stories-only        (grouping by code only, no model calls, free)
 Writes output/<end>/stories.json and output/<end>/facts.json.
 """
@@ -23,6 +24,7 @@ from src.llm import ask_json
 
 WITH_FACTS = 40        # strongest stories get facts: enough for a wildcard listener with unusual interests
 PER_TOPIC = 3          # plus the best stories of every topic, so no kind of listener goes empty
+WINDOW_DAYS = 6       # default window: the last six days of the data (13 to 18 Nov for the event data)
 MAX_WITH_FACTS = 120   # hard cap on fact calls (about $0.001 each with gpt-4.1-mini)
 # Always worth facts, whatever their rank: an FX or rates listener needs them, and the editor model often files
 # them under "energy" or "politics" ("Dollar Surges to 2026 High", "ECB's Schnabel warns ..."). Title only.
@@ -87,14 +89,20 @@ def add_translations(facts, story, articles):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--start", default="2026-11-13", help="first UTC day, YYYY-MM-DD")
-    ap.add_argument("--end", default="2026-11-18", help="last UTC day; the briefing is for the morning after")
+    ap.add_argument("--data", help="folder with your Newstex .jsonl files (default data/)")
+    ap.add_argument("--start", help="first UTC day, YYYY-MM-DD (default: 5 days before --end)")
+    ap.add_argument("--end", help="last UTC day, the briefing is for the morning after (default: the newest "
+                                  "article in the data)")
+    ap.add_argument("--out", help="folder to write to (default output/<end>, which the player lists)")
     ap.add_argument("--stories-only", action="store_true", help="group by code only, no model calls")
     args = ap.parse_args()
 
-    out = Path("output") / args.end
+    articles = load_articles(data=args.data)
+    args.end = args.end or max(a["date"][:10] for a in articles.values())
+    args.start = args.start or (datetime.fromisoformat(args.end) - timedelta(days=WINDOW_DAYS - 1)).date().isoformat()
+    out = Path(args.out) if args.out else Path("output") / args.end
     out.mkdir(parents=True, exist_ok=True)
-    articles = load_articles()
+    print(f"{len(articles)} articles in {args.data or 'data/'}, window {args.start} to {args.end}, writing to {out}")
     window = [a for a in articles.values() if args.start <= a["date"][:10] <= args.end]
     stories = cluster(window, list(articles.values()))
     print(f"{len(window)} articles {args.start} to {args.end} -> {len(stories)} stories by code")
