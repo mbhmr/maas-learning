@@ -42,7 +42,7 @@ LANG_NAME = {"en": "English", "de": "German", "nl": "Dutch"}
 STOCK_PHRASES = re.compile(r"^\s*(next up|up next|here'?s a big one|big one coming|moving on|last but not least|"
                            r"and finally|now,? let'?s|weiter geht'?s?( es)?|jetzt wird('s| es) spannend|spannend|"
                            r"interessant|und jetzt|door naar het volgende|nu wordt het spannend)\b[\s!:.,-]*", re.I)
-SECONDS_PER_STORY = 25
+SECONDS_PER_STORY = 20  # 25 left most briefings at half their length once the checker had removed lines
 FACTS_PER_STORY = 4
 
 # ---------------------------------------------------------------- 1. selection
@@ -144,7 +144,8 @@ What you return:
   is about in general words (e.g. "Morning, trader, central banks are running the show!"). No numbers, no
   company or person names, no events, no claims. Do not say it is a briefing or an AI, the code adds that.
 {sign_off}
-- lines: the news, one spoken sentence per line, at most {words} words in total, stories in the given order.
+- lines: the news, one spoken sentence per line, about {words} words in total (use nearly all of them: the
+  listener asked for this length, a briefing far under it is a failure; the code cuts anything over), stories in the given order.
 
 Two kinds of lines:
 - kind "claim": what happened, only what the quoted source sentences say.

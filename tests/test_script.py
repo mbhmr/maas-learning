@@ -171,7 +171,7 @@ def test_judge_empty_makes_no_call(monkeypatch):
 # ---------------------------------------------------------------- select_stories
 STORIES = [{"id": f"s{i}", "title": f"T{i}", "publishers": ["A"]} for i in range(1, 8)]
 SFACTS = [{"story_id": f"s{i}"} for i in range(1, 7)]  # s7 has no facts
-PROFILE = {"seconds": 75, "language": "en", "description": "Likes markets."}  # k = 3
+PROFILE = {"seconds": 60, "language": "en", "description": "Likes markets."}  # k = 3
 
 
 def pick(monkeypatch, out, profile=PROFILE):
