@@ -344,8 +344,8 @@ def calls_by_name(text, name):
     """The greeting uses the listener's name or a clear part of it ("trader" for "FX trader",
     "Anleger" for "Privatanleger")."""
     low = text.lower()
-    parts = [w for w in re.findall(r"\w+", name.lower()) if len(w) >= 4]
-    return any(w in low for w in parts) or any(len(w) >= 5 and w in name.lower() for w in re.findall(r"\w+", low))
+    parts = [w for w in re.findall(r"\w+", name.lower()) if len(w) >= 2]
+    return any(re.search(rf"\b{re.escape(w)}", low) for w in parts) or any(len(w) >= 5 and w in name.lower() for w in re.findall(r"\w+", low))
 
 
 def tidy(text):
@@ -423,12 +423,22 @@ def allowed_numbers(fact, text=""):
     behind the date. The model's own summary (claim, period) does not count, it was never checked.
     """
     nums = set()
+    dated = date_numbers(text)
     for s in fact["sources"]:
         nums |= numbers(s["quote"])
-        if MONTH_WORDS.search(text):
-            y, _, d = s["date"][:10].split("-")
-            nums |= {float(y), float(d)}
+        y, _, d = s["date"][:10].split("-")
+        nums |= {float(y), float(d)} & dated
     return nums
+
+
+def date_numbers(text):
+    """Day and year numbers that stand right next to a month name: "18 November 2026", "November 18", "Nov. 2026"."""
+    m = MONTH_WORDS.pattern[3:-3]  # the alternation without its \b( )\b
+    found = set()
+    for hit in re.finditer(rf"\b(\d{{1,2}})\.?\s+(?:{m})\b\.?(?:,?\s+(\d{{4}}))?|\b(?:{m})\b\.?\s+(\d{{1,4}})\b(?:,?\s+(\d{{4}}))?",
+                           text, re.I):
+        found |= {float(g) for g in hit.groups() if g}
+    return found
 
 
 # A superlative or a dramatic verb in speech needs the same idea in an (English) source quote.
@@ -587,7 +597,10 @@ def check_script(raw_lines, facts, lang):
             dropped.append({**line, "why": "no source"})
             continue
         spoken = numbers(line["text"], lang)
-        missing = spoken - set().union(*(allowed_numbers(by_id[i], line["text"]) for i in ids))
+        allowed = set().union(*(allowed_numbers(by_id[i], line["text"]) for i in ids))
+        missing = spoken - allowed
+        if lang != "en":  # "1.155" kept from an English quote reads as 1155 in German and Dutch number style
+            missing = {x for x in missing if x >= 1e6 or round(x / 1000, 6) not in allowed}
         if missing:
             dropped.append({**line, "why": f"numbers not in sources: {sorted(missing)}"})
             continue
@@ -683,5 +696,8 @@ def judge(lines, facts):
         listing.append(f"{n}. KIND: {line.get('kind', 'claim')}\n   LINE: {line['text']}\n   QUOTES: {quotes or '(none)'}")
     verdicts = ask_json("judge", JUDGE_SYSTEM, "\n".join(listing), JUDGE_SCHEMA)["verdicts"]
     bad = {v["n"]: v["why"] for v in verdicts if not v["supported"] and 0 <= v["n"] < len(lines)}
+    seen = {v["n"] for v in verdicts}
+    # fail closed: a line the judge did not rule on is not spoken
+    bad.update({n: "no verdict for this line" for n in range(len(lines)) if n not in seen})
     kept = [line for n, line in enumerate(lines) if n not in bad]
     return kept, [{**lines[n], "why": f"content check: {why}"} for n, why in bad.items()]

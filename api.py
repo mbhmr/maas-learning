@@ -116,7 +116,9 @@ async def briefing(req: Request):
     profile = req.profile.model_dump()
     if profile["language"] not in ("en", "de", "nl") or not 20 <= profile["seconds"] <= 300:
         raise HTTPException(422, "language must be en, de or nl and seconds between 20 and 300")
-    hashed = profile if req.mode == "personal" else {**profile, "mode": req.mode}  # personal keys stay as they were
+    hashed = profile if req.mode == "personal" else {**profile, "mode": req.mode}
+    # a new prepare run means new facts: the old cached briefing must not be served any more
+    hashed = {**hashed, "facts": int((folder / "facts.json").stat().st_mtime)}
     key = f"{slug(profile['name'])}-{hashlib.sha1(json.dumps(hashed, sort_keys=True).encode()).hexdigest()[:8]}"
     out = folder / "briefings" / key
     cached = out / "briefing.json"

@@ -10,6 +10,7 @@ Writes output/<end>/stories.json and output/<end>/facts.json.
 import argparse
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -99,7 +100,6 @@ def main():
         s["selected"] = s in chosen
         s["fact_article_ids"] = evidence_articles(s, articles)
         s.pop("all_headlines", None)
-    (out / "stories.json").write_text(json.dumps(stories, indent=2, ensure_ascii=False), encoding="utf-8")
     (out / "merge_log.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     for s in chosen[:15]:
         print(f"  {s['rank']:>3}. [{s['importance']}] {s['title'][:70]}  ({len(s['article_ids'])} art., "
@@ -117,8 +117,16 @@ def main():
         results = list(pool.map(work, chosen))
     facts = [f for fs, _ in results for f in fs]
     rejected = [r for _, rs in results for r in rs]
+    # stories and facts are written together at the end: story ids are renumbered on every run, so a briefing
+    # made between the two writes would put the new titles on the old facts
+    (out / "stories.json").write_text(json.dumps(stories, indent=2, ensure_ascii=False), encoding="utf-8")
     (out / "facts.json").write_text(json.dumps({"start": args.start, "end": args.end, "facts": facts,
                                                 "rejected": rejected}, indent=2, ensure_ascii=False), encoding="utf-8")
+    # shared editions were built from the old facts: move them to the bin (cached briefings are keyed by facts.json)
+    if (out / "editions").exists():
+        bin_ = out.parent / "_papierkorb"
+        bin_.mkdir(exist_ok=True)
+        (out / "editions").rename(bin_ / f"editions-{out.name}-{time.strftime('%Y%m%d-%H%M%S')}")
     conflicts = sum(f["conflict"] for f in facts)
     print(f"{len(chosen)} stories with facts: {len(facts)} facts verified ({conflicts} with conflicting sources), "
           f"{len(rejected)} sources rejected")

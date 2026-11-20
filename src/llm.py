@@ -36,7 +36,7 @@ def log_usage(entry):
         f.write(json.dumps(entry) + "\n")
 
 
-def ask_json(step, system, user, schema, max_tokens=4000, model=None):
+def ask_json(step, system, user, schema, max_tokens=4000, model=None, timeout=None):
     """One chat call with a strict JSON schema. Returns the parsed object.
 
     max_tokens stops a call that loops (once a fact call wrote 66,000 characters of repeated JSON).
@@ -45,7 +45,8 @@ def ask_json(step, system, user, schema, max_tokens=4000, model=None):
     # GPT-5 models reason first: they take no temperature and count their thinking in the token limit
     extra = ({"reasoning_effort": "low", "max_completion_tokens": max_tokens + 4000} if model.startswith("gpt-5")
              else {"temperature": 0, "max_tokens": max_tokens})
-    resp = _get_client().chat.completions.create(
+    client = _get_client() if timeout is None else _get_client().with_options(timeout=timeout)
+    resp = client.chat.completions.create(
         model=model,
         **extra,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],

@@ -43,6 +43,9 @@ const STEPS = ['Picking the stories for this listener', 'Writing the script from
 const fmt = (s) => (s == null || isNaN(s) ? '0:00' : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`)
 const day = (d) => (d ? new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
+// cut for length, an orphaned context line or a greeting without the name: not a truth problem, not counted as blocked
+const notChecker = (why) => /^(over the requested|context for a story whose news|greeting does not call)/.test(String(why))
+
 async function api(path, body) {
   const r = await fetch(path, body ? {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -50,6 +53,7 @@ async function api(path, body) {
   if (!r.ok) {
     let msg = `${r.status}`
     try { msg = (await r.json()).detail ?? msg } catch { /* not json */ }
+    if (r.status >= 500) msg = `Something went wrong on the server (${msg}). Try again, or pick a listener that is already cached.`
     if (r.status === 429) msg = 'Too many new briefings at once. This demo caps new briefings to protect its credits. ' +
       `Try again in ${r.headers.get('Retry-After') || 'a few'} seconds, or pick a listener that is already cached.`
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
@@ -73,7 +77,7 @@ function SourceCard({ s, lang }) {
     setState('loading')
     try {
       const r = await fetch('/api/quote-audio', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quote: s.quote, lang }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quote: s.quote, lang: s.language || 'en' }),
       })
       if (!r.ok) throw new Error()
       audio.current = new Audio(URL.createObjectURL(await r.blob()))
@@ -88,7 +92,7 @@ function SourceCard({ s, lang }) {
         <span className="outlet">{s.publisher}</span>
         <span className="date">{day(s.date)}</span>
       </header>
-      {s.conflict && <p className="warn">Sources disagree on this figure. Both are named in the briefing.</p>}
+      {s.conflict && <p className="warn">Sources disagree on this figure. Check both before relying on it.</p>}
       <blockquote><Quote quote={s.quote} value={s.value} /></blockquote>
       <footer>
         <a className="open" href={s.evidenceUrl} target="_blank" rel="noreferrer">Open original, quote highlighted ↗</a>
@@ -175,7 +179,7 @@ function Newsroom({ dayId }) {
               <span className="nr-meta">
                 <span><b>{s.articleCount}</b> articles{s.articles.length > s.articleCount ? ` + ${s.articles.length - s.articleCount} translated` : ''}</span>
                 <span><b>{s.outlets.length}</b> outlets</span>
-                <span>{s.languages.map(l => l.toUpperCase()).join(' · ')}</span>
+                <span>{(s.languages || []).map(l => String(l).toUpperCase()).join(' · ')}</span>
                 {s.hasFacts ? <span className="nr-facts"><b>{s.factCount}</b> facts</span> : <span className="muted">no facts</span>}
               </span>
             </button>
@@ -185,7 +189,7 @@ function Newsroom({ dayId }) {
                   <li key={a.id}>
                     <span className="nr-pub">{a.publisher}</span>
                     <a href={a.url} target="_blank" rel="noreferrer">{a.headline}</a>
-                    <small>{a.language.toUpperCase()}{a.translationOf ? ' · translation' : ''} · {String(a.date).slice(0, 16).replace('T', ' ')}</small>
+                    <small>{a.language ? `${a.language.toUpperCase()}` : ''}{a.translationOf ? ' · translation' : ''} · {String(a.date).slice(0, 16).replace('T', ' ')}</small>
                   </li>
                 ))}
               </ul>
@@ -302,7 +306,7 @@ export default function App() {
       claims: claims.filter(c => c.kind === 'claim').length,
       quotes: new Set(src.map(s => s.quote)).size,
       outlets: new Set(src.map(s => s.publisher)).size,
-      blocked: (briefing?.dropped || []).filter(d => !String(d.why).startsWith('over the requested')).length,
+      blocked: (briefing?.dropped || []).filter(d => !notChecker(d.why)).length,
       conflicts: src.filter(s => s.conflict).length,
     }
   }, [claims, briefing])
@@ -465,10 +469,10 @@ export default function App() {
                 </div>
               ) : (
                 <div className="cut">
-                  <p className="muted">These lines were written by the model and <b>never spoken</b>, because the checker could not
-                    find them in the cited quotes. This is what keeps the briefing honest.</p>
+                  <p className="muted">These lines were written by the model and <b>never spoken</b>. Crossed out in full: the checker
+                    could not back them with the cited quotes. Greyed: cut for length or style, not for truth.</p>
                   {(briefing.dropped || []).map((d, n) => (
-                    <div key={n} className={`cutline ${String(d.why).startsWith('over the requested') ? 'length' : ''}`}>
+                    <div key={n} className={`cutline ${notChecker(d.why) ? 'length' : ''}`}>
                       <s>{d.text}</s>
                       <span>{String(d.why).replace('content check: ', 'content check · ')}</span>
                     </div>

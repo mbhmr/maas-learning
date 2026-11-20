@@ -227,7 +227,8 @@ def merge_and_rate(stories, articles, ask_json, end_day):
     for s in stories:
         s["all_headlines"] = [articles[i]["headline"] for i in s["article_ids"]]
     listing = "\n".join(f"{s['id']}: " + " | ".join(s["all_headlines"][:3]) for s in stories)
-    out = ask_json("merge", MERGE_SYSTEM, listing, MERGE_SCHEMA, max_tokens=20000)
+    # 8,000 output tokens take about two minutes: the 60 s listener timeout would kill this once-a-day call
+    out = ask_json("merge", MERGE_SYSTEM, listing, MERGE_SCHEMA, max_tokens=20000, timeout=600)
     by_id = {s["id"]: s for s in stories}
 
     # names are fixed BEFORE merging, so a growing story cannot collect ever more names and swallow everything

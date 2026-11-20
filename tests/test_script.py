@@ -158,8 +158,8 @@ def test_judge_drops_unsupported(monkeypatch):
     monkeypatch.setattr(script, "ask_json", fake)
     lines = [line("Good."), line("Bad."), line("Also fine.")]
     kept, dropped = judge(lines, FACTS)
-    assert [k["text"] for k in kept] == ["Good.", "Also fine."]
-    assert len(dropped) == 1 and dropped[0]["why"] == "content check: wrong direction"
+    assert [k["text"] for k in kept] == ["Good."]  # "Also fine." got no verdict: fail closed, not spoken
+    assert [d["why"] for d in dropped] == ["content check: wrong direction", "content check: no verdict for this line"]
     assert "Producer prices rose 0.3%" in seen["user"]  # the quote is shown to the judge
 
 
@@ -529,3 +529,21 @@ def test_english_date_opening_in_german_line_is_dropped():
     fact = mkfact(quote="On 13 November, producer prices rose 0.3% in October.")
     kept, dropped = run("On 13 November stiegen die Erzeugerpreise um 0,3 Prozent.", facts=[fact], lang="de")
     assert kept == [] and "English" in dropped[0]["why"]
+
+
+def test_date_numbers_only_next_to_a_month():
+    fact = mkfact(quote="Retail sales rose 0.3% in October.", date="2026-11-18T08:00:00+00:00")
+    kept, dropped = run("Retail sales rose 18 percent in October.", facts=[fact])
+    assert kept == [] and "18" in dropped[0]["why"]
+    kept, _ = run("On 18 November 2026, retail sales were reported up 0.3 percent.", facts=[fact])
+    assert len(kept) == 1
+
+
+def test_short_names_count_in_the_greeting():
+    assert script.calls_by_name("Good morning, Tom, here is your news!", "Tom")
+
+
+def test_german_three_decimals_from_english_quote_pass():
+    fact = mkfact(quote="EUR/USD rose to 1.155 on Tuesday.")
+    kept, _ = run("EUR/USD stieg auf 1.155.", facts=[fact], lang="de")
+    assert len(kept) == 1

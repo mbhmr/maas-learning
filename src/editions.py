@@ -239,8 +239,9 @@ def greeting_text(profile, segment):
     lang = profile["language"]
     hello, topic = GREET[lang]
     label = SEGMENTS[segment][1][lang]
-    for text in (f"{hello.format(profile['name'].strip())} {topic.format(label)}",
-                 f"{GREETING[lang]} {topic.format(label)}"):
+    name = profile["name"].strip()
+    named = [f"{hello.format(name)} {topic.format(label)}"] if name and name.lower() != "listener" else []
+    for text in named + [f"{GREETING[lang]} {topic.format(label)}"]:
         ok, _ = check_host(text, lang, GREETING_WORDS)
         if ok:
             return ok
