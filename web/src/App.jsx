@@ -223,7 +223,18 @@ export default function App() {
   useEffect(() => { if (audio.current) audio.current.playbackRate = rate }, [rate, briefing])
 
   const seek = (t) => { if (audio.current) { audio.current.currentTime = t; setTime(t) } }
-  const toggle = () => { if (!audio.current) return; playing ? audio.current.pause() : audio.current.play() }
+  const jingle = useRef(null)
+  const [intro, setIntro] = useState(false)
+  // the station jingle (ElevenLabs Music) plays once before the briefing starts from the top
+  const toggle = () => {
+    if (!audio.current) return
+    if (intro) { jingle.current.pause(); setIntro(false); return }
+    if (playing) { audio.current.pause(); return }
+    if (audio.current.currentTime < 0.2 && jingle.current) {
+      jingle.current.currentTime = 0
+      jingle.current.play().then(() => setIntro(true)).catch(() => audio.current.play())
+    } else audio.current.play()
+  }
   const openClaim = (c) => { setPinned(c.id); setSheet(true); if (c.start != null) seek(c.start) }
 
   const stats = useMemo(() => {
@@ -327,24 +338,26 @@ export default function App() {
           {briefing && !busy && (
             <>
               <div className="player">
-                <button className="play" onClick={toggle} disabled={!briefing.audioUrl} aria-label={playing ? 'Pause' : 'Play'}>
-                  {playing ? <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+                <button className="play" onClick={toggle} disabled={!briefing.audioUrl} aria-label={playing || intro ? 'Pause' : 'Play'}>
+                  {playing || intro ? <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
                     : <svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg>}
                 </button>
                 <div className="player-main">
                   <div className="player-meta">
                     <strong>{briefing.profile.name}</strong>
-                    <span>{LANGS[briefing.profile.language]} · {fmt(time)} / {fmt(duration)}</span>
+                    <span>{intro ? "♪ station jingle" : `${LANGS[briefing.profile.language]} · ${fmt(time)} / ${fmt(duration)}`}</span>
                   </div>
                   <Timeline claims={claims} duration={duration} time={time} onSeek={seek} />
                 </div>
                 <button className="ghost small" onClick={() => setRate(rate === 1 ? 1.25 : rate === 1.25 ? 1.5 : 1)}>{rate}×</button>
-                {briefing.audioUrl && (
+                {briefing.audioUrl && (<>
+                  <audio ref={jingle} src="/api/sound/jingle.mp3" preload="auto"
+                    onEnded={() => { setIntro(false); audio.current?.play() }} onError={() => setIntro(false)} />
                   <audio ref={audio} src={briefing.audioUrl} preload="auto"
                     onTimeUpdate={(e) => setTime(e.target.currentTime)}
                     onLoadedMetadata={(e) => setDuration(e.target.duration)}
                     onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
-                )}
+                </>)}
               </div>
 
               <div className="stats">

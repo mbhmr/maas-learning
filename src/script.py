@@ -240,6 +240,9 @@ def write_script(profile, stories, facts):
         if not frame[role]:
             continue
         text, why = check_host(out.get(role, ""), lang, host_words(profile))
+        name = (profile.get("name") or "").strip().lower()
+        if role == "greeting" and not why and name and name != "listener" and not calls_by_name(text, name):
+            text, why = None, "greeting does not call the listener by their name"
         if why:
             dropped.append({"text": out.get(role, ""), "fact_ids": [], "kind": "host", "why": why})
         else:
@@ -249,6 +252,7 @@ def write_script(profile, stories, facts):
         if line.get("role"):
             frame[line["role"]] = line["text"]
     kept = [line for line in judged_lines if not line.get("role")]
+    kept, dropped, judged = repair(profile, chosen, facts, day, kept, dropped, judged)
     kept, cut = fit_length(kept, profile, sum(len(t.split()) for t in frame.values()))
     kept, orphans = arrange(kept, facts)
     if missing:
@@ -257,6 +261,56 @@ def write_script(profile, stories, facts):
     spoken = {story_of[i] for line in kept for i in line["fact_ids"]}
     frame = {k: tidy(v) for k, v in frame.items()}
     return kept, dropped + judged + cut + orphans, [s for s in chosen if s["id"] in spoken], frame
+
+
+REPAIRABLE = ("content check", "numbers not in sources", "too long for the ear", "starts with a bare number",
+              "unsupported superlative", "English words", "context line with a figure")
+REPAIR_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["lines"],
+                 "properties": {"lines": SCHEMA["properties"]["lines"]}}
+
+
+def repair(profile, chosen, facts, day, kept, dropped, judged):
+    """One second chance: blocked lines go back to the writer with the checker's reason, and the rewrite
+    passes every check again. What still fails stays blocked. Lines that were dropped for good stay dropped.
+    """
+    blocked = [d for d in dropped + judged if d.get("kind", "claim") in LINE_KINDS
+               and any(str(d.get("why", "")).startswith(r) or r in str(d.get("why", "")) for r in REPAIRABLE)]
+    if not blocked:
+        return kept, dropped, judged
+    lang = profile["language"]
+    todo = "\n".join(f'- [{d.get("kind", "claim")}] "{d["text"]}" facts {d.get("fact_ids", [])}: blocked because '
+                     f'{d["why"]}' for d in blocked)
+    user = (facts_prompt(chosen, facts, day) + "\n\nThe checker blocked these lines. Rewrite each one so it passes: "
+            "one short sentence (at most 30 words), only what its quotes say, the same fact ids, no figure in a "
+            "context line. Leave out a line you cannot fix fully.\n" + todo)
+    try:
+        out = ask_json("repair", system_prompt(profile, day and _day(day)), user, REPAIR_SCHEMA, model=SCRIPT_MODEL)
+    except Exception:  # the briefing is still valid without the repair
+        return kept, dropped, judged
+    fixed, still = check_script(out.get("lines", []), facts, lang)
+    fixed, still_judged = judge(fixed, facts)
+    blocked_ids = {id(d) for d in blocked}
+    for d in blocked:
+        d["why"] = f'{d["why"]} (rewrite tried)'
+    order = {s["id"]: n for n, s in enumerate(chosen)}
+    story_of = {f["id"]: f["story_id"] for f in facts}
+    lines = sorted(kept + fixed, key=lambda x: (order.get(story_of.get((x.get("fact_ids") or [""])[0]), 99),
+                                               x.get("kind") == "context"))
+    # the original wording stays visible as blocked, the rewrite (if it passed) is spoken
+    return lines, dropped + [{**x, "why": f'rewrite blocked: {x["why"]}'} for x in still], judged + still_judged
+
+
+RELATIVE_TIME = re.compile(r"\b(yesterday|today|tonight|tomorrow|last week|this week|next week|last night|"
+                           r"gestern|heute|morgen früh|letzte woche|vorige woche|diese woche|nächste woche|"
+                           r"gisteren|vandaag|morgen|vorige week|deze week|volgende week|afgelopen week)\b", re.I)
+
+
+def calls_by_name(text, name):
+    """The greeting uses the listener's name or a clear part of it ("trader" for "FX trader",
+    "Anleger" for "Privatanleger")."""
+    low = text.lower()
+    parts = [w for w in re.findall(r"\w+", name.lower()) if len(w) >= 4]
+    return any(w in low for w in parts) or any(len(w) >= 5 and w in name.lower() for w in re.findall(r"\w+", low))
 
 
 def tidy(text):
@@ -468,6 +522,13 @@ def check_script(raw_lines, facts, lang):
             continue
         if len(line["text"].split()) > 45:  # one sentence, one story: a listener cannot scroll back
             dropped.append({**line, "why": "too long for the ear (over 45 words)"})
+            continue
+        if RELATIVE_TIME.search(line["text"]):  # the briefing is heard on another day than the article was written
+            dropped.append({**line, "why": "relative date (say the date instead)"})
+            continue
+        opening = " ".join(line["text"].lower().split()[:5])
+        if any(" ".join(k["text"].lower().split()[:5]) == opening for k in kept):
+            dropped.append({**line, "why": "repeats an earlier line"})
             continue
         if lang != "en" and ENGLISH_GIVEAWAY.search(line["text"]):
             dropped.append({**line, "why": "English words in a non-English line"})

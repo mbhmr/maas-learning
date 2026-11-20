@@ -394,3 +394,37 @@ def test_arrange_drops_orphan_context_and_moves_context_after_its_claims():
     kept, orphans = arrange(lines, facts)
     assert [x["text"] for x in kept] == ["News.", "Why it matters."]
     assert orphans[0]["text"] == "Orphan." and "not spoken" in orphans[0]["why"]
+
+
+def test_repair_rewrites_a_blocked_line_and_keeps_the_original_visible(monkeypatch):
+    long_line = "Producer prices rose 0.3 percent " + "and more words " * 20 + "today."
+    fake, calls = fake_steps({"greeting": "Morning, trader, prices first!", "sign_off": "See you soon!",
+                              "lines": [{"text": long_line, "kind": "claim", "fact_ids": ["s1-f1"]}]})
+
+    def with_repair(step, system, user, schema, **kw):
+        if step == "repair":
+            calls["repair"] = user
+            return {"lines": [{"text": "Producer prices rose 0.3 percent.", "kind": "claim", "fact_ids": ["s1-f1"]}]}
+        return fake(step, system, user, schema, **kw)
+    monkeypatch.setattr(script, "ask_json", with_repair)
+    lines, dropped, _, _ = script.write_script({**LONG, "name": "trader"}, WS_STORIES, WS_FACTS)
+    assert "too long for the ear" in calls["repair"]
+    assert [x["text"] for x in lines] == ["Producer prices rose 0.3 percent."]
+    assert any("rewrite tried" in d["why"] for d in dropped)
+
+
+def test_greeting_may_use_part_of_the_name():
+    from src.script import calls_by_name
+    assert calls_by_name("Hello, trader, central banks first!", "FX trader")
+    assert calls_by_name("Morgen, du Anleger!", "Privatanleger")
+    assert not calls_by_name("Goedemorgen, retail investor!", "Belegger")
+
+
+def test_relative_dates_and_repeats_are_dropped():
+    lines = [{"text": "Producer prices rose 0.3 percent last week.", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "Producer prices rose 0.3 percent in October.", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "Producer prices rose 0.3 percent in October, again.", "kind": "claim", "fact_ids": ["s1-f1"]}]
+    kept, dropped = script.check_script(lines, FACTS, "en")
+    whys = [d["why"] for d in dropped]
+    assert any("relative date" in w for w in whys) and any("repeats" in w for w in whys)
+    assert [k["text"] for k in kept] == ["Producer prices rose 0.3 percent in October."]
