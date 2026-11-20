@@ -69,7 +69,7 @@ STORY = {"id": "s1", "title": "PPI", "article_ids": ["a1", "a2"]}
 
 
 def fact(sources, value="0.3"):
-    return {"metric": "ppi", "claim": "PPI rose", "value": value, "unit": "%", "period": "Oct",
+    return {"metric": "ppi", "claim": "US PPI rose", "value": value, "unit": "%", "period": "Oct",
             "importance": 3, "sources": sources}
 
 
@@ -246,3 +246,44 @@ def test_verify_rejects_unattributed_view():
     good = dict(bad, claim="Fed Governor Waller argued that a 25 basis point December hike is likely.")
     ok, _ = verify_facts(story, [good], art)
     assert len(ok) == 1
+
+
+# ---------------------------------------------------------------- expectations and macro figures (eval/REPORT.md)
+from src.facts import missing_place
+
+
+def test_expectation_without_who_expects_is_caught():
+    q = "Markets continued to price a December hike of 25bps with approximately 98% probability."
+    assert unattributed("The Federal Reserve is expected to raise rates by 25 basis points.", q) == "Markets"
+    assert unattributed("Markets price a 25 basis point Fed hike with about 98% probability.", q) is None
+    q_de = "Ökonomen erwarten, dass die Gesamtpreise um 0.4% steigen."
+    assert unattributed("US PPI is expected to rise 0.4%.", q_de) == "Ökonomen"
+
+
+def test_expectation_as_the_quote_says_it_passes():
+    # the article itself says "is expected to", without naming who: the claim is as good as its source
+    q = "October headline CPI is expected to reach 3.6%, with core inflation projected at 2.8%."
+    assert unattributed("UK headline CPI is expected to reach 3.6% in October 2026.", q) is None
+
+
+@pytest.mark.parametrize("claim, missing", [
+    ("Core CPI increased 0.3% month on month in October 2026, exceeding forecasts of 0.2%.", True),
+    ("Retail sales excluding autos rose 0.6% month on month in October 2026.", True),
+    ("Inflation is running above 3%.", True),
+    ("US core CPI increased 0.3% month on month in October 2026.", False),
+    ("Canada's headline CPI inflation rate is expected to rise to 3.2%.", False),
+    ("The Bank of Japan's policy rate was held at 1.25%.", False),
+    ("Waller argued that rate cuts may not be enough to bring inflation back toward 2%.", False),  # a person
+    ("Nvidia shares fell 4.3% in November 2026.", False),  # no macro figure at all
+])
+def test_missing_place(claim, missing):
+    assert missing_place(claim) is missing
+
+
+def test_verify_rejects_macro_figure_without_country():
+    art = {"h1": {"id": "h1", "publisher": "ActionForex", "url": "https://x/h1", "date": "2026-11-18T08:00:00+00:00",
+                  "text": "Core CPI increased 0.3%, also exceeding forecasts of 0.2%."}}
+    story = {"id": "s29", "title": "Fed", "article_ids": ["h1"]}
+    bad = dict(fact([src("h1", "Core CPI increased 0.3%", "0.3%")]), claim="Core CPI increased 0.3% in October 2026.")
+    ok, rej = verify_facts(story, [bad], art)
+    assert ok == [] and rej[0]["why"] == "macro figure without country or region"

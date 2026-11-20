@@ -104,7 +104,10 @@ Rules:
 - Keep attribution. If the quote reports what a person, institution or analyst said, expects, supports or
   thinks, the claim names who, as the article does: "Fed Governor Waller said he supports a 25 basis point
   hike", never "The Fed is expected to hike". One official's view is never the institution's decision,
-  and a forecast is never stated as a fact.
+  and a forecast is never stated as a fact. An expectation keeps who expects it, as the quote says it:
+  "markets price a 25 basis point hike", "economists expect a 0.4% rise".
+- A figure about an economy (CPI, inflation, GDP, retail sales, jobs, interest rates) names its country or region:
+  "US core CPI rose 0.3%", never "Core CPI rose 0.3%".
 - Skip opinions, forecasts by the outlet and anything that sounds like investment advice."""
 
 
@@ -121,6 +124,9 @@ def extract_facts(story, articles):
 def verify_facts(story, raw_facts, articles):
     verified, rejected = [], []
     for n, f in enumerate(raw_facts):
+        if missing_place(f["claim"]):
+            rejected.append({"fact": f["claim"], "why": "macro figure without country or region"})
+            continue
         good = []
         for s in f["sources"]:
             art = articles.get(s["article_id"])
@@ -159,13 +165,56 @@ _PRONOUNS = {"He", "She", "They", "It", "We", "I", "This", "That", "Analysts", "
              "Economists", "Officials", "Some", "Many", "Others"}
 
 
+# "The Fed is expected to hike" (s29-f1 of 18 Nov): who expects it? The quote said "Markets continued to price ...".
+_EXPECTED = re.compile(r"\b(is|are|was|were) (widely |broadly )?(expected|forecast|projected|anticipated|predicted|"
+                       r"seen|likely) to\b", re.I)
+# who holds an expectation, in English, German and Dutch quotes; the claim must keep it if the quote has it
+_EXPECTERS = re.compile(r"\b(markets?|traders?|investors?|economists?|analysts?|consensus|futures|polls?|surveys?|"
+                        r"according to|ökonomen|analysten|händler|anleger|märkte|economen|analisten|beleggers|"
+                        r"handelaren|markten|volgens|laut|zufolge)\b", re.I)
+
+
 def unattributed(claim, quote):
-    """The speaker if the quote is a named person's view and the claim drops the name, else None."""
+    """The speaker if the quote is a named person's view and the claim drops the name, else None.
+
+    Also: the claim says "X is expected to ..." without who expects it, while the quote names them (markets,
+    economists, "according to ..."). If the quote itself only says "is expected to", the claim is as good as its source.
+    """
     for m in _VIEW.finditer(quote):
         who = m.group(1)
         if who not in _PRONOUNS and who.lower() not in claim.lower():
             return who
+    if _EXPECTED.search(claim) and not _EXPECTERS.search(claim):
+        m = _EXPECTERS.search(quote)
+        if m:
+            return m.group(1)
     return None
+
+
+# A macro figure needs its country: on 18 Nov UK, Canada, Eurozone and US inflation all came out ("Core CPI
+# increased 0.3%", s29-f3, is ambiguous). Interest rates count only as "policy rate" or "interest rate(s)".
+_MACRO = re.compile(r"\b(cpi|hicp|ppi|pce|gdp|inflation|consumer prices|producer prices|retail sales|unemployment|"
+                    r"jobless|payrolls|policy rate|interest rates?)\b", re.I)
+_PLACE = re.compile(r"\b(us|u\.s\.|usa|united states|american?|uk|u\.k\.|britain|british|england|euro ?zone|euro area|"
+                    r"europe(an)?|eu|germany|german|france|french|italy|italian|spain|spanish|netherlands|dutch|japan(ese)?|"
+                    r"china|chinese|canada|canadian|australian?|new zealand|switzerland|swiss|india(n)?|brazil|mexico|"
+                    r"korea|turkey|russia|israel|sweden|norway|fed|federal reserve|federal|fomc|ecb|boe|bank of \w+|boj|"
+                    r"boc|rba|rbnz|snb|pboc|riksbank)\b", re.I)
+# capitals that name no place: series names, months, sentence openers
+_NO_PLACE = set("""CPI HICP PPI PCE GDP PMI EPS Core Headline Annual Monthly Retail Consumer Producer Inflation Interest
+Underlying Energy Real Unemployment Jobless Policy The October November December January February March April May
+June July August September Q1 Q2 Q3 Q4""".split())
+
+
+def missing_place(claim):
+    """True if the claim gives a macro figure (CPI, GDP, inflation, rates ...) without naming a country or region.
+
+    A named place, central bank or any other capitalised name in mid-sentence (a person, an institute) counts.
+    """
+    if not _MACRO.search(claim) or _PLACE.search(claim):
+        return False
+    words = re.findall(r"[A-Za-z][\w.'’-]*", claim)
+    return not any(w[0].isupper() and w not in _NO_PLACE for w in words)
 
 
 def _one_per_article(sources, value):

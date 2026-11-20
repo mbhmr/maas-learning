@@ -277,3 +277,44 @@ def test_pick_is_capped():
     stories = [_st(r, f"Fed item {r}") for r in range(1, 400)]
     picked = prepare.pick(stories)
     assert len(picked) == prepare.MAX_WITH_FACTS and picked[0]["rank"] == 1
+
+
+# ---------------------------------------------------------------- guards from the answer key (eval/REPORT.md)
+def test_news_about_a_rating_is_not_advice():
+    assert not ADVICE.search("Anthropic receives its first 'Buy' rating")
+    assert ADVICE.search("Wall Street Analyst Upgrades to 'Strong Buy'")  # the pitch is still caught
+
+
+@pytest.mark.parametrize("headline", [
+    "Wall-Street-Futures uneinheitlich vor PPI: 5 Dinge vor Handelsbeginn",
+    "Wall Street-futures gemengd voor PPI-data: 5 dingen om te weten voor beursopening",
+])
+def test_translated_roundups_match(headline):
+    assert ROUNDUP.search(headline)
+
+
+def test_translation_of_a_dropped_roundup_is_dropped_too():
+    def art(i, feed, headline, minute):
+        return {"id": f"x{i}", "headline": headline, "excerpt": "", "text": headline + " body text", "feed": feed,
+                "publisher": "Invezz", "date": f"2026-11-18T12:{minute:02d}:00+00:00", "sections": ["Markets"],
+                "language": feed[-2:], "author": "Jane Doe"}
+    arts = [art(1, "invezz_en", "Evening digest: oil falls, gold slips", 0),
+            art(2, "invezz_de", "Abend-Übersicht: Öl fällt, Gold rutscht", 5),  # no round-up word of its own
+            art(3, "invezz_en", "Fed holds interest rates steady", 30)]
+    ids = {i for s in cluster(arts, arts) for i in s["article_ids"]}
+    assert ids == {"x3"}
+
+
+def test_shared_place_or_data_series_alone_does_not_merge():
+    # s18 of 18 Nov: Trump gossip "in China" was glued to China's industrial output; s5: three CPI releases
+    for a, b in (("Trump Tapping His Leg in China", "China Industrial Output Slows"),
+                 ("Canada Inflation Holds Steady", "Eurozone Inflation Confirmed Higher")):
+        stories, arts = build(titles_with({"s1": a, "s2": b}))
+        _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+        assert info["merges"] == 0, (a, b)
+
+
+def test_place_next_to_a_rare_name_still_merges():
+    stories, arts = build(titles_with({"s1": "Huawei Sanctions Widen in China", "s2": "China Hits Back Over Huawei"}))
+    _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+    assert info["merges"] == 1

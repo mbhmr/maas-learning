@@ -24,13 +24,14 @@ stock stocks shares share price prices market markets news report us usd per cen
 SIMILAR = 0.27  # tuned on known pairs: same event 0.28 to 0.44, different events up to 0.24
 LEAD = 1000
 TRANSLATION_MINUTES = 15
-# Buy/sell pitches are dropped up front: the briefing must not give investment advice.
+# Buy/sell pitches are dropped up front: the briefing must not give investment advice. News ABOUT a rating
+# ("Anthropic receives its first 'Buy' rating") is news and stays, so there is no "buy rating" pattern.
 ADVICE = re.compile(r"\b(stocks? to buy|buy now|should you (invest|buy)|investing radar|strong buy|top-ranked|"
-                    r"(a|good) (stock to )?buy\b|buy or sell|time to buy|worth buying|'?buy'? rating|bull of the day|bear of the day)", re.I)
+                    r"(a|good) (stock to )?buy\b|buy or sell|time to buy|worth buying|bull of the day|bear of the day)", re.I)
 # Round-ups cover many events at once; mixing them into one story would glue unrelated news together.
 ROUNDUP = re.compile(r"\b(evening digest|morning (digest|brief)|things to know|what to watch|week ahead|"
                      r"weekly (recap|wrap)|market wrap|stocks? to watch|abendbericht|morgenbericht|wochenausblick|avondbericht|ochtendbericht|avondoverzicht|ochtendoverzicht|abend-update|morgen-update|"
-                     r"abend-report|morgen-report)\b", re.I)
+                     r"abend-report|morgen-report|\d+ dinge|\d+ dingen|dingen om te weten|dinge vor handelsbeginn)\b", re.I)
 PRIORITY_SECTIONS = {"fed", "ecb", "boj", "boe", "inflation", "central banks", "economy", "united states",
                      "stock market", "earnings", "world", "politics", "business"}
 
@@ -86,8 +87,10 @@ def cluster(arts, corpus):
 
     Returns [{'id', 'rank', 'title', 'article_ids', 'publishers', 'score', 'translations'}].
     """
-    arts = [a for a in arts if not ADVICE.search(a["headline"]) and not ROUNDUP.search(a["headline"])]
+    # translations are linked FIRST, so a dropped English round-up or pitch takes its German and Dutch twins with it
+    # ("5 Dinge vor Handelsbeginn" survived as its own story while only the English headline was filtered)
     originals, translations = link_translations(arts)
+    originals = [a for a in originals if not ADVICE.search(a["headline"]) and not ROUNDUP.search(a["headline"])]
     originals.sort(key=_ts)
     tickers = [set(re.findall(r"\(([A-Z]{1,5})\)", a["headline"])) for a in originals]
     idf = idf_table([a for a in corpus if a["feed"] not in ("invezz_de", "invezz_nl")])
@@ -165,7 +168,14 @@ warns amid about could down not while during former family man woman after befor
 why what how when where new could should would year years day days week weeks time back
 ceo cfo coo cto ipo etf etfs wall street january february march april may june july august september october
 november december""".split())  # job titles, instruments and months are written in capitals but name no event
-RARE_SHARE = 0.05     # a shared name only counts if at most 5 % of stories carry it ("Huang" yes, "Trump" no)
+# Names that are a place or a data series, not the subject of one event: alone they never join two stories.
+# Seen gluing: "Canada CPI" + "Eurozone ... Core CPI" + "UK ... Core CPI", "Trump ... in China" + "China Industrial
+# Output", "America's shopping trolley" + "Captain America". A second shared name ("Huang" next to "China") still joins.
+WEAK = set("""cpi ppi gdp hicp pmi pce core inflation retail sales output industrial jobs payrolls yields treasury
+america american china chinese japan japanese canada canadian europe european eurozone britain british germany
+german france french india russia ukraine israel iran texas california illinois florida washington london beijing
+tokyo""".split())
+RARE_SHARE = 0.05    # a shared name only counts if at most 5 % of stories carry it ("Huang" yes, "Trump" no)
 FRESH = 5.0           # score bonus for a story whose newest article is from the last hours of the window
 HALF_LIFE_HOURS = 24  # ... halved every 24 hours: 5 just now, 2.5 a day old, 1.25 two days old, 0.16 five days old
 
@@ -229,7 +239,7 @@ def merge_and_rate(stories, articles, ask_json, end_day):
     title_names = {s["id"]: _names({"all_headlines": [s["title"]]}) & proper for s in stories}
     names = {s["id"]: _core_names(s) & proper for s in stories}
     df = Counter(n for s in stories for n in _names(s))  # rarity over ALL headlines: "Trump", "Nvidia" are common
-    rare = {n for n, c in df.items() if c <= max(3, RARE_SHARE * len(stories))}
+    rare = {n for n, c in df.items() if c <= max(3, RARE_SHARE * len(stories))} - WEAK
 
     def joins(i, h):
         shared = names[i] & title_names[h]

@@ -187,6 +187,35 @@ def _newest(fact):
     return max(s["date"][:10] for s in fact["sources"])
 
 
+# A story moves on: "Anthropic kept its IPO range at $70 to $78" (17 Nov) was stale once it priced at $83 (18 Nov),
+# and the writer picked the old fact. Only the newest fact per entity and metric goes to the writer. Same entity is
+# the first word of the metric key ("anthropic_ipo_price_range"); same metric is the same key, or an evolving deal
+# word in both keys plus one more shared word ("ipo" + "price"). Older means an older newest-source DAY.
+EVOLVING = {"ipo", "offering", "listing", "guidance", "outlook", "forecast", "deal", "bid", "takeover", "acquisition",
+            "merger", "buyout"}
+_GENERIC_KEY = {"per", "of", "the", "a", "and", "in", "on", "to", "change", "mom", "yoy", "qoq", "total", "value",
+                "count", "number", "estimate"}
+
+
+def _superseded(old, new):
+    a, b = old.get("metric", "").lower().split("_"), new.get("metric", "").lower().split("_")
+    if not a[0] or a[0] != b[0] or _newest(old) >= _newest(new):
+        return False
+    shared = (set(a[1:]) & set(b[1:])) - _GENERIC_KEY
+    return a == b or (bool(shared & EVOLVING) and len(shared) >= 2)
+
+
+def current_facts(facts):
+    """The facts the writer may use: every fact that a NEWER fact about the same entity and metric replaces is left out,
+    also when the newer one sits in another story."""
+    by_entity = {}
+    for f in facts:
+        if f.get("sources"):
+            by_entity.setdefault(f.get("metric", "").split("_")[0].lower(), []).append(f)
+    return [f for f in facts if not f.get("sources")
+            or not any(_superseded(f, g) for g in by_entity.get(f.get("metric", "").split("_")[0].lower(), []))]
+
+
 def news_day(facts):
     """The day of the briefing: the newest article date among the facts (ISO, '2026-11-18')."""
     return max((_newest(f) for f in facts if f.get("sources")), default=None)
@@ -229,6 +258,7 @@ def write_script(profile, stories, facts):
     the checks, otherwise the fixed fallback; sign_off is "" in very short briefings.
     """
     lang = profile["language"]
+    facts = current_facts(facts)  # stale facts are never offered, so they cannot be cited either
     chosen, missing = select_stories(profile, stories, facts)
     day = news_day(facts)
     out = ask_json("script", system_prompt(profile, day and _day(day)), facts_prompt(chosen, facts, day), SCHEMA,
@@ -264,7 +294,8 @@ def write_script(profile, stories, facts):
 
 
 REPAIRABLE = ("content check", "numbers not in sources", "too long for the ear", "starts with a bare number",
-              "unsupported superlative", "English words", "context line with a figure")
+              "superlative not in sources", "English words", "context line with a figure",
+              "person not in its quotes", "time qualifier not in its quotes")  # a rewrite can drop the name or the qualifier
 REPAIR_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["lines"],
                  "properties": {"lines": SCHEMA["properties"]["lines"]}}
 
@@ -468,6 +499,48 @@ def localise(text, lang):
     return re.sub(r"\s{2,}", " ", text)
 
 
+# A person named in a line must be named in one of its quotes: "Waller wants more hikes" once cited only the Williams
+# article (fx-trader c8). The people come from the fact claims, where the fact prompt puts a title before the name
+# ("Fed Governor Christopher Waller", "BoJ board member Hajime Takata"); the surname is what is checked.
+_TITLED = re.compile(r"\b(?i:governor|president|chair(?:man|woman)?|ceo|minister|secretary|senator|commissioner|"
+                     r"director|board member|member|economist|analyst|strategist|founder|chief executive)\s+"
+                     r"((?:[A-Z][a-zA-Z'’-]+\s+){0,2}[A-Z][a-zA-Z'’-]+)")
+
+
+def people(facts):
+    """Surnames of the people the facts name with a title: {'Waller', 'Hammack', 'Ueda', ...}."""
+    return {m.group(1).split()[-1] for f in facts for m in _TITLED.finditer(f.get("claim", ""))}
+
+
+def unquoted_people(text, quotes, names):
+    """The names spoken in `text` that none of its quotes contains ("Wallers" in German counts as Waller)."""
+    src = " ".join(quotes).lower()
+    return sorted(n for n in names if re.search(rf"\b{re.escape(n)}", text) and n.lower() not in src)
+
+
+# "after hours", "premarket" and their German and Dutch words say WHEN a move happened. "Nvidia rose 1.6 percent in
+# after-hours trading" was wrong although 1.6 is in the quote: the 1.6 % was regular trading (privatanleger c2).
+# Each pair: the words in a spoken line, and the words in a quote (any language) that back them.
+SESSIONS = [
+    (re.compile(r"\b(after[- ]?hours|extended trading|post-?market|nachbörs|nabeurs)", re.I),
+     re.compile(r"\b(after[- ]?hours|extended trading|post-?market|after the (bell|close)|late trading|nachbörs|"
+                r"nach (handels|börsen)schluss|nabeurs|na (de )?(sluiting|slotbel))", re.I)),
+    (re.compile(r"\b(pre-?market|vorbörs|voorbeurs)", re.I),
+     re.compile(r"\b(pre-?market|before the (bell|open)|ahead of the (bell|open)|vorbörs|vor (handels|börsen)beginn|"
+                r"vor (der )?börseneröffnung|voorbeurs|voor (de )?(opening|openingsbel))", re.I)),
+]
+
+
+def unsupported_session(text, quotes):
+    """The time qualifier a line speaks ("nachbörslich") if no quote says the same, else None."""
+    src = " ".join(quotes)
+    for spoken, backed in SESSIONS:
+        m = spoken.search(text)
+        if m and not backed.search(src):
+            return m.group(0)
+    return None
+
+
 ADVICE = re.compile(r"\b(buy|buying|sell(?!-)|selling|invest(ing)?|you should|time to|kauf\w*|verkauf\w*|investier\w*|"
                     r"solltest|lohnt sich|koop\w*|kopen|verkoop\w*|verkopen|investeer\w*|zou je moeten)\b", re.I)
 BARE_NUMBER_START = re.compile(r"^\W*\d")
@@ -495,6 +568,7 @@ def check_host(text, lang, max_words):
 def check_script(raw_lines, facts, lang):
     """Each raw line: {'text', 'fact_ids', 'kind'} (kind "claim" if missing). Returns (kept, dropped)."""
     by_id = {f["id"]: f for f in facts}
+    names = people(facts)
     kept, dropped, context_for = [], [], set()
     for line in raw_lines:
         kind = line.get("kind") if line.get("kind") in LINE_KINDS else "claim"
@@ -513,9 +587,18 @@ def check_script(raw_lines, facts, lang):
         if missing:
             dropped.append({**line, "why": f"numbers not in sources: {sorted(missing)}"})
             continue
-        sup = unsupported_superlatives(line["text"], [s["quote"] for i in ids for s in by_id[i]["sources"]])
+        quotes = [s["quote"] for i in ids for s in by_id[i]["sources"]]
+        sup = unsupported_superlatives(line["text"], quotes)
         if sup:
             dropped.append({**line, "why": f"superlative not in sources: {sup}"})
+            continue
+        who = unquoted_people(line["text"], quotes, names)
+        if who:
+            dropped.append({**line, "why": f"person not in its quotes: {', '.join(who)}"})
+            continue
+        when = unsupported_session(line["text"], quotes)
+        if when:
+            dropped.append({**line, "why": f"time qualifier not in its quotes: {when}"})
             continue
         if BARE_NUMBER_START.match(line["text"]):
             dropped.append({**line, "why": "starts with a bare number"})

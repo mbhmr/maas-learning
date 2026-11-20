@@ -428,3 +428,84 @@ def test_relative_dates_and_repeats_are_dropped():
     whys = [d["why"] for d in dropped]
     assert any("relative date" in w for w in whys) and any("repeats" in w for w in whys)
     assert [k["text"] for k in kept] == ["Producer prices rose 0.3 percent in October."]
+
+
+# ---------------------------------------------------------------- answer-key gaps (eval/REPORT.md)
+def _waller_and_williams():
+    waller = {**mkfact("s14-f1", "s14", "Waller called for a 50bps hike in December."),
+              "claim": "Fed Governor Christopher Waller called for a 50 basis points hike."}
+    williams = mkfact("s29-f1", "s29", "Markets continued to price a December hike of 25bps with approximately 98% probability.")
+    return [waller, williams]
+
+
+def test_person_must_be_named_in_a_quote():
+    facts = _waller_and_williams()
+    kept, dropped = run("Waller wants more hikes, and markets price a 25 basis point move at 98 percent.",
+                        ids=("s29-f1",), facts=facts)
+    assert kept == [] and dropped[0]["why"] == "person not in its quotes: Waller"
+    kept, _ = run("Fed Governor Waller called for a 50 basis point hike.", ids=("s14-f1",), facts=facts)
+    assert len(kept) == 1
+    kept, _ = run("Wallers Forderung: 50 Basispunkte.", ids=("s14-f1",), facts=facts, lang="de")
+    assert len(kept) == 1  # German genitive still counts as Waller, and the quote names him
+
+
+def test_person_and_time_reasons_are_repairable():
+    assert any("person not in its quotes: Waller".startswith(r) for r in script.REPAIRABLE)
+    assert any("time qualifier not in its quotes: nachbörs".startswith(r) for r in script.REPAIRABLE)
+    assert any("superlative not in sources: ['record']".startswith(r) for r in script.REPAIRABLE)
+
+
+@pytest.mark.parametrize("text, lang", [
+    ("Nvidia shares rose 1.6 percent in after-hours trading.", "en"),
+    ("Nvidia-Aktien stiegen im nachbörslichen Handel um 1,6 Prozent.", "de"),
+    ("Nvidia-aandelen stegen nabeurs met 1,6 procent.", "nl"),
+    ("Nvidia-Aktien stiegen vorbörslich um 1,6 Prozent.", "de"),
+])
+def test_time_qualifier_must_be_in_a_quote(text, lang):
+    regular = [mkfact("s7-f3", "s7", "Nvidia shares rose 1.6% on Wednesday.")]
+    kept, dropped = run(text, ids=("s7-f3",), facts=regular, lang=lang)
+    assert kept == [] and "time qualifier not in its quotes" in dropped[0]["why"]
+
+
+def test_time_qualifier_backed_in_another_language_passes():
+    backed = [mkfact("s7-f3", "s7", "Die Aktie stieg im nachbörslichen Handel um 2.47%.")]
+    kept, _ = run("Nvidia shares rose 2.47 percent after hours.", ids=("s7-f3",), facts=backed)
+    assert len(kept) == 1
+
+
+def _ipo(fid, story, metric, day, quote):
+    return {**mkfact(fid, story, quote, date=f"2026-11-{day}T12:00:00+00:00"), "metric": metric}
+
+
+def test_older_fact_on_same_entity_and_metric_is_not_offered():
+    old = _ipo("s32-f4", "s32", "anthropic_ipo_price_range", 17, "Anthropic kept its range at $70 to $78.")
+    new = _ipo("s2-f1", "s2", "anthropic_ipo_price_per_share", 18, "Anthropic priced its IPO at $83.")
+    other = _ipo("s32-f1", "s32", "nasdaq_open_change", 17, "The Nasdaq opened 0.09% lower.")
+    same_day = _ipo("s2-f2", "s2", "anthropic_ipo_share_count", 18, "The deal included 825 million shares.")
+    assert [f["id"] for f in script.current_facts([old, new, other, same_day])] == ["s2-f1", "s32-f1", "s2-f2"]
+
+
+def test_same_key_older_day_is_dropped_but_different_metrics_stay():
+    a = _ipo("s24-f1", "s24", "bitcoin_price", 17, "Bitcoin traded around $64,270.")
+    b = _ipo("s3-f1", "s3", "bitcoin_price", 18, "Bitcoin traded below $64,000.")
+    c = _ipo("s15-f5", "s15", "ttwo_fy26_net_bookings", 13, "Net bookings were $6 billion.")
+    d = _ipo("s15-f4", "s15", "ttwo_fy27_net_bookings_forecast", 18, "It forecast $8 billion.")
+    assert [f["id"] for f in script.current_facts([a, b, c, d])] == ["s3-f1", "s15-f5", "s15-f4"]
+
+
+def test_write_script_never_offers_a_stale_fact(monkeypatch):
+    old = _ipo("s1-f1", "s1", "anthropic_ipo_price_range", 17, "Anthropic kept its range at $70 to $78.")
+    new = _ipo("s1-f2", "s1", "anthropic_ipo_price_per_share", 18, "Anthropic priced its IPO at $83.")
+    seen = {}
+    fake, _ = fake_steps({"greeting": "Morning, trader, deals first!", "sign_off": "See you soon!",
+                          "lines": [{"text": "Anthropic kept its range at $70 to $78.", "kind": "claim",
+                                     "fact_ids": ["s1-f1"]}]})
+
+    def spy(step, system, user, schema, **kw):
+        if step == "script":
+            seen["prompt"] = user
+        return fake(step, system, user, schema, **kw)
+    monkeypatch.setattr(script, "ask_json", spy)
+    lines, dropped, _, _ = script.write_script({**LONG, "name": "trader"}, WS_STORIES, [old, new])
+    assert "s1-f1" not in seen["prompt"] and "s1-f2" in seen["prompt"]
+    assert lines == [] or all("s1-f1" not in x["fact_ids"] for x in lines)
