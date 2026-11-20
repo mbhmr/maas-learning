@@ -213,6 +213,20 @@ def proper_names(articles):
     return {w for w, c in cap.items() if c >= 2 and c >= 4 * low[w] and first[w] < 0.6 * c}
 
 
+# A question or a forecast in the headline is opinion about the news, not the news ("will oil crash below $90?",
+# "analyst sees upside", "Play the dollar's gain with these ETFs"): it should not outrank a data release.
+SPECULATION = re.compile(r"\?|\b(analysis|forecast|outlook|prediction|what's next|could|should you|is it time|"
+                         r"price target|sees upside|to buy|buy now|play|etfs? in focus|top picks?)\b", re.I)
+MACRO_TOPICS = {"central banks and macro", "currencies"}
+
+
+def rank_score(story, n_articles, fresh):
+    """Importance leads (5 per point), then outlets, size and freshness. Measured on the answer key (20.11.):
+    with 3 per point and no macro bonus 3 of 8 must-hear events were in the top 10, with this 6 of 8."""
+    return round(5 * story["importance"] + 2 * len(story["publishers"]) + math.log2(1 + n_articles) + fresh
+                 + (4 if story["topic"] in MACRO_TOPICS else 0) - (6 if SPECULATION.search(story["title"]) else 0), 2)
+
+
 def freshness(latest, end):
     """The briefing is for the morning after `end`: news of the last 24 to 48 hours counts clearly more.
 
@@ -279,8 +293,7 @@ def merge_and_rate(stories, articles, ask_json, end_day):
         r = rating.get(s["id"], {"score": 2, "topic": "other"})
         s["importance"], s["topic"] = max(1, min(5, r["score"])), r["topic"]
         s["latest"] = max(a["date"] for a in members)
-        s["score"] = round(3 * s["importance"] + 2 * len(s["publishers"]) + math.log2(1 + len(members))
-                           + freshness(max(_ts(a) for a in members), end), 2)
+        s["score"] = rank_score(s, len(members), freshness(max(_ts(a) for a in members), end))
         result.append(s)
     result.sort(key=lambda s: -s["score"])
     for n, s in enumerate(result, 1):

@@ -290,7 +290,10 @@ def write_script(profile, stories, facts):
     kept, dropped, judged = repair(profile, chosen, facts, day, kept, dropped, judged)
     kept, twice = dedupe(kept, facts, profile["language"])
     dropped += twice
-    kept, cut = fit_length(kept, profile, sum(len(t.split()) for t in frame.values()))
+    reserved = sum(len(t.split()) for t in frame.values())
+    chosen, kept, more_dropped = top_up(profile, stories, facts, day, chosen, kept, reserved)
+    dropped += more_dropped
+    kept, cut = fit_length(kept, profile, reserved)
     kept, orphans = arrange(kept, facts)
     if missing:
         kept.append({"text": NOTHING_ON[lang].format(", ".join(missing)), "fact_ids": [], "kind": "transition"})
@@ -361,14 +364,55 @@ def tidy(text):
     return re.sub(r"\s+([!?.,;:])", r"\1", text).strip()
 
 
+UNNAMED_START = re.compile(r"^(it|its|they|their|he|she|his|her|this|these|that|those|the (outage|company|firm|bank|"
+                           r"agency|group|stock|shares|deal|index|report|move|decision)|er|sie|es|dies|der konzern|"
+                           r"die bank|zij|hij|dit|deze|dat|het bedrijf|de bank)\b", re.I)
+TOP_UP_BELOW = 0.8  # a briefing under 80 % of its requested length gets one more round of stories
+
+
+def top_up(profile, stories, facts, day, chosen, kept, reserved):
+    """The checker removes lines, so a briefing can end far under the length the listener asked for. Then the
+    next fitting stories are written in one more call and go through the same checks. Returns
+    (chosen, kept, dropped)."""
+    lang = profile["language"]
+    budget = profile["seconds"] * WORDS_PER_SECOND[lang] - reserved
+    used = sum(len(line["text"].split()) for line in kept)
+    if used >= TOP_UP_BELOW * budget:
+        return chosen, kept, []
+    with_facts = {f["story_id"] for f in facts}
+    taken = {s["id"] for s in chosen}
+    pool = [s for s in stories if s["id"] in with_facts and s["id"] not in taken]
+    if not pool:
+        return chosen, kept, []
+    rest = {**profile, "seconds": max(20, (budget - used) / WORDS_PER_SECOND[lang])}
+    try:
+        more, _ = select_stories(rest, pool, facts)
+        out = ask_json("script", system_prompt(rest, day and _day(day)),
+                       facts_prompt(more, facts, day) + "\n\nThe listener has already heard other stories: write only "
+                       "the lines for these, no greeting and no sign-off.", SCHEMA, model=SCRIPT_MODEL)
+    except Exception:  # the briefing is valid without the extra stories
+        return chosen, kept, []
+    new, dropped = check_script(out["lines"], facts, lang)
+    new, judged = judge(new, facts)
+    new, orphans = arrange(new, facts)
+    kept, twice = dedupe(kept + new, facts, lang)
+    return chosen + more, kept, dropped + judged + orphans + twice
+
+
 def dedupe(lines, facts, lang):
     """The last word on repeats, over the whole briefing: rewrites from the repair round were only checked among
     themselves. A claim is a repeat when an earlier claim of the same story shares one of its figures."""
     story_of = {f["id"]: f["story_id"] for f in facts}
     kept, dropped = [], []
     told = set()  # stories that already have their "why it matters" line
+    opened = set()  # stories that already have a claim
     for line in lines:
         stories = {story_of.get(i) for i in line["fact_ids"]}
+        # the first claim of a story must say who or what it is about: "The outage hit 430 million people" alone
+        # leaves the listener guessing which outage
+        if line.get("kind", "claim") == "claim" and not stories & opened and UNNAMED_START.match(line["text"]):
+            dropped.append({**line, "why": "does not name what the story is about"})
+            continue
         if line.get("kind") == "context":
             if stories & told:
                 dropped.append({**line, "why": "second context line for one story"})
@@ -380,6 +424,7 @@ def dedupe(lines, facts, lang):
                                and figures & numbers(k["text"], lang) for k in kept):
                 dropped.append({**line, "why": "repeats an earlier line"})
                 continue
+            opened |= stories
         kept.append(line)
     return kept, dropped
 

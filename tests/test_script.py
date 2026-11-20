@@ -582,3 +582,39 @@ def test_dedupe_keeps_one_context_line_per_story():
              {"text": "That shows how big it is.", "kind": "context", "fact_ids": ["s1-f1"]}]
     kept, dropped = script.dedupe(lines, [f1], "en")
     assert len(kept) == 2 and dropped[0]["why"] == "second context line for one story"
+
+
+def test_top_up_adds_stories_when_far_under_length(monkeypatch):
+    f2 = mkfact("s2-f1", "s2", "Retail sales rose 0.2% in October.")
+    def fake(step, system, user, schema, **kw):
+        if step == "select":
+            return {"story_ids": ["s2"], "interests_without_story": []}
+        if step == "judge":
+            return {"verdicts": [{"n": 0, "supported": True, "why": ""}]}
+        return {"greeting": "", "sign_off": "", "lines": [
+            {"text": "US retail sales rose 0.2 percent in October.", "kind": "claim", "fact_ids": ["s2-f1"]}]}
+    monkeypatch.setattr(script, "ask_json", fake)
+    stories = [{"id": "s1", "title": "PPI", "publishers": ["A"]}, {"id": "s2", "title": "Retail", "publishers": ["A"]}]
+    kept = [{"text": "Producer prices rose 0.3 percent in October.", "kind": "claim", "fact_ids": ["s1-f1"]}]
+    chosen, kept2, _ = script.top_up({"seconds": 90, "language": "en", "depth": "medium", "description": "x"}, stories,
+                                      [mkfact(), f2], None, [stories[0]], kept, 20)
+    assert [s["id"] for s in chosen] == ["s1", "s2"] and len(kept2) == 2
+
+
+def test_no_top_up_when_long_enough(monkeypatch):
+    monkeypatch.setattr(script, "ask_json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
+    kept = [{"text": "word " * 150, "kind": "claim", "fact_ids": ["s1-f1"]}]
+    chosen, kept2, dropped = script.top_up({"seconds": 90, "language": "en", "description": "x"}, [], [mkfact()],
+                                           None, [], kept, 20)
+    assert kept2 == kept and dropped == []
+
+
+def test_first_claim_of_a_story_must_name_its_subject():
+    f1 = mkfact("s1-f1", "s1", "The outage hit services used by more than 430 million people.")
+    lines = [{"text": "The outage hit services used by more than 430 million people.", "kind": "claim", "fact_ids": ["s1-f1"]}]
+    kept, dropped = script.dedupe(lines, [f1], "en")
+    assert kept == [] and dropped[0]["why"] == "does not name what the story is about"
+    lines = [{"text": "Microsoft's outage hit 430 million people.", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "It lasted almost a day.", "kind": "claim", "fact_ids": ["s1-f1"]}]
+    kept, _ = script.dedupe(lines, [f1], "en")
+    assert len(kept) == 2  # a follow-up in the same story may say "it"

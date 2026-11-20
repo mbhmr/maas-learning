@@ -318,3 +318,12 @@ def test_place_next_to_a_rare_name_still_merges():
     stories, arts = build(titles_with({"s1": "Huawei Sanctions Widen in China", "s2": "China Hits Back Over Huawei"}))
     _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
     assert info["merges"] == 1
+
+
+def test_rank_score_puts_data_release_above_speculation():
+    from src.cluster import rank_score
+    data = {"importance": 4, "publishers": ["A", "B"], "topic": "central banks and macro",
+            "title": "US wholesale inflation rises less than expected in October"}
+    guess = {"importance": 4, "publishers": ["A", "B", "C"], "topic": "energy and commodities",
+             "title": "Brent crude price analysis: will oil crash below $90?"}
+    assert rank_score(data, 3, 1.0) > rank_score(guess, 6, 3.0)

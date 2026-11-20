@@ -94,5 +94,11 @@ def build_briefing(profile, stories, facts, out_dir, audio=True):
             if t:
                 c["start"], c["end"] = t  # seconds into the MP3, for highlighting and seeking
         briefing["audioPath"] = str(mp3)
+        # listen back: speech recognition re-hears every figure in the finished MP3 and compares it with the text
+        try:
+            from src.audiocheck import check_audio
+            briefing["audioCheck"] = check_audio(mp3, claims, lang)
+        except Exception as e:  # a failed check must not cost the listener the briefing; it says so instead
+            briefing["audioCheck"] = {"checked": 0, "ok": 0, "mismatches": [], "error": str(e)[:200]}
     (out_dir / "briefing.json").write_text(json.dumps(briefing, indent=2, ensure_ascii=False), encoding="utf-8")
     return briefing

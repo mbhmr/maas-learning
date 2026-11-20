@@ -145,7 +145,28 @@ async def briefing(req: Request):
     result["mode"] = req.mode
     edition_key = result.pop("editionKey", None)
     result["edition"] = editions.info(folder, edition_key) if edition_key else None  # count is read fresh
+    result["pipeline"] = _pipeline(folder)
     return result
+
+
+def _pipeline(folder):
+    """How the day was prepared, for the trust receipt: read from the prepared files, nothing estimated."""
+    stamp = (folder / "facts.json").stat().st_mtime
+    if _pipeline_cache.get("stamp") != (folder, stamp):
+        stories = json.loads((folder / "stories.json").read_text(encoding="utf-8"))
+        prepared = json.loads((folder / "facts.json").read_text(encoding="utf-8"))
+        _pipeline_cache.update(stamp=(folder, stamp), value={
+            "articlesRead": sum(len(s["article_ids"]) for s in stories),
+            "outlets": len({p for s in stories for p in s.get("publishers", [])}),
+            "stories": len(stories),
+            "storiesWithFacts": len({f["story_id"] for f in prepared["facts"]}),
+            "factsChecked": len(prepared["facts"]),
+            "sourcesRejected": len(prepared.get("rejected", [])),
+        })
+    return _pipeline_cache["value"]
+
+
+_pipeline_cache = {}
 
 
 @app.get("/api/audio/{day}/{key}.mp3")
