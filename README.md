@@ -62,6 +62,23 @@ returns the briefing. Same profile again = served from cache, no new cost.
 `evidenceUrl` opens the original article with the quote highlighted (text fragment). Open it in a new tab so the
 audio keeps playing. `dropped` lists lines the checker removed, worth showing ("what we did not say").
 
+## Sound (for the player)
+
+Three fixed sounds, made once with `python -m src.sound` (ElevenLabs Music and Sound Effects), served by
+`GET /api/sound/{name}.mp3`: play `jingle` once before the briefing starts, `verified` at the `end` of each claim
+with `kind: "claim"`, and `conflict` instead when one of its sources has `conflict: true`. Any other name is 404.
+To let the listener hear the original wording, `POST /api/quote-audio` with `{"quote": source.quote, "lang": "en|de|nl"}`
+returns an MP3 of that quote in a calm voice. Send the `quote` exactly as it came in the briefing: only quotes of
+checked facts are read aloud, anything else is 404, and each quote is generated once and then served from cache.
+
+### Audio check
+
+`src/audiocheck.py` listens back to the finished MP3: it sends it to ElevenLabs Speech-to-Text (Scribe, word timestamps)
+and compares every number heard in a claim's time window with the numbers in its checked text.
+`check_audio(mp3_path, claims, lang)` returns `{"checked", "ok", "mismatches": [{"claim_id", "text", "expected", "heard", "spoken"}]}` (`spoken` = the recognised words).
+Names from the claims go in as keyterms, the numbers never do, so the recogniser is not told what it should hear.
+The ElevenLabs key needs the Speech to Text permission. Not yet run on real audio (20.11.), only on simulated transcripts.
+
 ## Working together
 
 - One branch per person (`daten`, `audio`, `ui`), small commits, pull before push, merge into `main` with a pull request.

@@ -4,3 +4,4 @@ python-dotenv==1.2.4
 httpx
 fastapi==0.121.1
 uvicorn==0.38.0
+mutagen==1.48.1
