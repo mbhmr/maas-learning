@@ -509,3 +509,23 @@ def test_write_script_never_offers_a_stale_fact(monkeypatch):
     lines, dropped, _, _ = script.write_script({**LONG, "name": "trader"}, WS_STORIES, [old, new])
     assert "s1-f1" not in seen["prompt"] and "s1-f2" in seen["prompt"]
     assert lines == [] or all("s1-f1" not in x["fact_ids"] for x in lines)
+
+
+# ---------------------------------------------------------------- regen 20.11. evening
+def test_missing_interest_that_a_story_title_names_is_not_said(monkeypatch):
+    _, missing = pick(monkeypatch, {"story_ids": ["s1"], "interests_without_story": ["T3 news", "Solarenergie"]})
+    assert missing == ["Solarenergie"]  # "T3" is in a title of the day, saying "nothing on it" would be false
+
+
+def test_same_figures_twice_is_a_repeat():
+    fact = mkfact(quote="USD/JPY reached 160.30 before retreating to around 159.89 on Friday.")
+    lines = [{"text": "USD/JPY reached 160.30 before retreating to 159.89.", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "The pair hit 160.30 and then eased to about 159.89.", "kind": "claim", "fact_ids": ["s1-f1"]}]
+    kept, dropped = script.check_script(lines, [fact], "en")
+    assert len(kept) == 1 and dropped[0]["why"] == "repeats an earlier line"
+
+
+def test_english_date_opening_in_german_line_is_dropped():
+    fact = mkfact(quote="On 13 November, producer prices rose 0.3% in October.")
+    kept, dropped = run("On 13 November stiegen die Erzeugerpreise um 0,3 Prozent.", facts=[fact], lang="de")
+    assert kept == [] and "English" in dropped[0]["why"]

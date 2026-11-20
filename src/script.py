@@ -75,8 +75,12 @@ interests that no story covers, list those interests (in {LANG_NAME[profile['lan
     if not chosen:
         chosen = pool[:k]  # never an empty briefing: fall back to the top stories
     # free model text goes into speech here, so only short plain topic names pass ("Tesla", "Solarenergie")
+    # "nothing in our sources" must be true for the whole day, not only for the stories picked: a topic word that
+    # appears in any story title of the day is not missing, the line would be wrong
+    titles = " ".join(s["title"] for s in stories).lower()
     missing = [m.strip() for m in out["interests_without_story"]
-               if m.strip() and len(m.split()) <= 4 and not re.search(r"\d", m)]
+               if m.strip() and len(m.split()) <= 4 and not re.search(r"\d", m)
+               and not any(re.search(rf"\b{re.escape(w)}", titles) for w in m.lower().split() if len(w) >= 2)]
     return chosen, missing[:2]
 
 
@@ -473,8 +477,8 @@ _SCALE = {  # (English word or abbreviation after a digit, local word); case-sen
 _SINGULAR = {"de": [(r"(?<![\d.,])\b1 Milliarden\b", "1 Milliarde"), (r"(?<![\d.,])\b1 Millionen\b", "1 Million"),
                     (r"(?<![\d.,])\b1 Billionen\b", "1 Billion")]}
 # English words that give away an untranslated German or Dutch line ("US-Producer-Prices rose im Oktober").
-ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares)\b",
-                              re.I)
+ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares)\b"
+                              r"|\bon \d{1,2} [a-z]", re.I)
 
 
 def _swap_number(m):
@@ -610,7 +614,9 @@ def check_script(raw_lines, facts, lang):
             dropped.append({**line, "why": "relative date (say the date instead)"})
             continue
         opening = " ".join(line["text"].lower().split()[:5])
-        if any(" ".join(k["text"].lower().split()[:5]) == opening for k in kept):
+        # the same figures again (two or more) is the same news, however it is worded
+        if any(" ".join(k["text"].lower().split()[:5]) == opening
+               or (len(spoken) >= 2 and numbers(k["text"], lang) >= spoken) for k in kept):
             dropped.append({**line, "why": "repeats an earlier line"})
             continue
         if lang != "en" and ENGLISH_GIVEAWAY.search(line["text"]):
