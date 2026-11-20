@@ -8,3 +8,9 @@ def test_spelled_numbers_from_speech_recognition():
     assert {83.0, 825.0, 0.3} <= heard("auf dreiundachtzig Dollar, achthundertfünfundzwanzig Millionen, null Komma drei", "de")
     assert {83.0, 825.0, 1.5} <= heard("drieëntachtig dollar, achthonderdvijfentwintig miljoen, anderhalf biljoen", "nl")
     assert 4.0 in heard("Die Inflation lag bei 4,0 Prozent", "de")
+
+
+def test_ordinal_digits_stay_one_number():
+    from src.audiocheck import _heard_numbers
+    assert _heard_numbers("on November 16th, and 4.0 percent", "en") >= {16.0, 4.0}
+    assert 1.0 not in _heard_numbers("on November 16th", "en")

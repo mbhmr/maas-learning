@@ -72,7 +72,7 @@ def spelled_to_digits(text):
     """English speech recognition writes "zero point three percent", "one hundred and thirty billion",
     "twenty twenty-two": number words become digits so the figures can be compared. Scale words above a
     thousand (million, billion, trillion) stay words; the number parser reads them as it does in the script."""
-    tokens = re.findall(r"[A-Za-z]+(?:-[A-Za-z]+)*|\S", text)
+    tokens = re.findall(r"\d+(?:[.,]\d+)*[A-Za-z]*|[A-Za-z]+(?:-[A-Za-z]+)*|\S", text)  # "16th", "4.0" stay whole
     out, i = [], 0
     while i < len(tokens):
         v = _word_value(tokens[i])
