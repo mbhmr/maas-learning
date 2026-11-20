@@ -3,6 +3,13 @@
 MAIN Summit Hackathon 2026, Sourcera track. One news day from Newstex, a personal audio briefing for any listener,
 and every spoken fact links to the article it came from.
 
+## For the jury
+
+- **What it does:** one news day from six Newstex feeds becomes a personal audio briefing for any listener (language, length, depth, interests), in English, German or Dutch.
+- **Why you can trust it:** every spoken sentence with a figure links to the verbatim quote it rests on. A checker blocks any line whose number, name, time or claim is not in its quote, and after recording, speech recognition listens to the audio and checks every figure again.
+- **Measured:** against an answer key we built by hand (see `eval/REPORT.md`): no wrong number in 46 facts, and 6 of 8 must-hear events in the top 10 of the ranking.
+- **Demo outputs are not in this repo:** the Newstex licence forbids republishing article text, so `data/` and `output/` stay local. The pitch video shows the app; to run it yourself, follow Setup and Run below with the event dataset.
+
 ## How it works
 
 | Step | File | Cost |
