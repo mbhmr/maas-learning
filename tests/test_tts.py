@@ -97,3 +97,51 @@ def test_speak_without_key_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(tts.httpx, "post", lambda *a, **k: pytest.fail("no call without key"))
     with pytest.raises(RuntimeError, match="ELEVENLABS_API_KEY"):
         tts.speak(["A"], tmp_path / "x.mp3")
+
+
+# ---------------------------------------------------------------- voice and audio tags
+def test_default_voice_is_jessica_and_v3_natural(fake_tts, monkeypatch):
+    monkeypatch.delenv("ELEVENLABS_VOICE_ID", raising=False)
+    monkeypatch.delenv("ELEVENLABS_MODEL", raising=False)
+    install, sent, path = fake_tts
+    seen = {}
+    real_post = None
+
+    def post(url, **kw):
+        seen["url"] = url
+        return real_post(url, **kw)
+    install(len)
+    real_post = tts.httpx.post
+    monkeypatch.setattr(tts.httpx, "post", post)
+    tts.speak(["Hi"], path)
+    assert "cgSgspJ2msm6clMCkdW9" in seen["url"]
+    assert sent["json"]["model_id"] == "eleven_v3" and sent["json"]["voice_settings"]["stability"] == 0.5
+
+
+def test_tags_only_in_speech_and_spans_skip_them(fake_tts, monkeypatch):
+    monkeypatch.delenv("ELEVENLABS_MODEL", raising=False)
+    install, sent, path = fake_tts
+    install(len)  # alignment covers every character sent, tags included
+    spans = tts.speak(["Hello", "Up 5%", "Bye"], path, tags=["excited", "", "cheerful"])
+    text = sent["json"]["text"]
+    assert text == "[excited] Hello\n\nUp 5 percent\n\n[cheerfully] Bye"
+    # char i starts at i * 0.1: "Hello" = chars 10..15, "Up 5 percent" = 17..29, "Bye" = 44..47
+    assert spans == [(1.0, 1.5), (1.7, 2.9), (4.4, 4.7)]
+    assert text[10:15] == "Hello" and text[44:47] == "Bye"
+
+
+def test_alignment_without_tags_still_maps(fake_tts, monkeypatch):
+    monkeypatch.delenv("ELEVENLABS_MODEL", raising=False)
+    install, sent, path = fake_tts
+    install(lambda t: len(t.replace("[excited] ", "")))  # the service leaves the tags out of its alignment
+    spans = tts.speak(["Hello", "World"], path, tags=["excited"])
+    assert sent["json"]["text"].startswith("[excited] Hello")
+    assert spans == [(0.0, 0.5), (0.7, 1.2)]
+
+
+def test_no_tags_for_other_models(fake_tts, monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+    install, sent, path = fake_tts
+    install(len)
+    tts.speak(["Hello"], path, tags=["excited"])
+    assert sent["json"]["text"] == "Hello"

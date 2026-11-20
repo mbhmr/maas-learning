@@ -18,6 +18,22 @@ const PRESETS = [
         'language, what happened and why it matters, few numbers.',
     },
   },
+  {
+    key: 'world', label: 'World news', flag: 'EN',
+    profile: {
+      name: 'World news', language: 'en', seconds: 90, depth: 'simple, explain terms in a few words',
+      description: 'Someone who just wants to know what happened in the world: politics, world events, big ' +
+        'business and tech stories, crime and culture. Not an investor, no market jargon, at most one number per story.',
+    },
+  },
+  {
+    key: 'belegger', label: 'Belegger', flag: 'NL',
+    profile: {
+      name: 'Belegger', language: 'nl', seconds: 90, depth: 'medium',
+      description: 'A Dutch retail investor who holds tech stocks and some crypto. Wants stocks, AI companies, ' +
+        'crypto and the big macro numbers that move them, with the key figure per story and why it matters.',
+    },
+  },
 ]
 const LANGS = { en: 'English', de: 'Deutsch', nl: 'Nederlands' }
 const DEPTHS = ['dense, every figure with its period', 'medium', 'simple, explain terms in a few words']
@@ -34,6 +50,8 @@ async function api(path, body) {
   if (!r.ok) {
     let msg = `${r.status}`
     try { msg = (await r.json()).detail ?? msg } catch { /* not json */ }
+    if (r.status === 429) msg = 'Too many new briefings at once. This demo caps new briefings to protect its credits. ' +
+      `Try again in ${r.headers.get('Retry-After') || 'a few'} seconds, or pick a listener that is already cached.`
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
   }
   return r.json()
@@ -109,8 +127,11 @@ function Evidence({ claim, pinned, onFollow, lang, onClose }) {
       {claim.sources.length === 0
         ? <p className="muted">{claim.kind === 'disclosure'
           ? 'Fixed line: discloses the synthetic voice and that this is not investment advice.'
+          : claim.kind === 'host' ? 'Greeting written for this listener. The checker allows no figures or facts in it.'
           : 'No figure in this line.'}</p>
         : <>
+          {claim.kind === 'context' && <p className="reading">Why it matters, our reading. It adds no new facts: it interprets the
+            verified quotes below and the checker blocks any figure that is not in them.</p>}
           <p className="muted">{claim.sources.length === 1 ? 'Backed by 1 verified quote' :
             `Backed by ${claim.sources.length} verified quotes from ${new Set(claim.sources.map(s => s.publisher)).size} outlets`}</p>
           {claim.sources.map((s) => <SourceCard key={s.articleId + s.quote} s={s} lang={lang} />)}
@@ -345,6 +366,7 @@ export default function App() {
                         className={`line ${c.kind} ${current?.id === c.id ? 'now' : ''} ${pinned === c.id ? 'pin' : ''}
                           ${c.start != null && time > c.end ? 'past' : ''}`}
                         onClick={() => openClaim(c)}>
+                        {c.kind === 'context' && <span className="tag">Why it matters</span>}
                         <span className="text">{c.text}</span>
                         {outlets.map(s => (
                           <span key={s.publisher} className={`src ${s.conflict ? 'conflict' : ''}`}>

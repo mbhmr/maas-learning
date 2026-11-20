@@ -149,3 +149,100 @@ def test_conflict_rules():
 
 def test_norm():
     assert norm("It’s  “Big” – news!") == "it's big - news"
+
+
+# ---------------------------------------------------------------- decimal comma and scale words (de, nl)
+@pytest.mark.parametrize("text,lang,expected", [
+    ("5,28 Mio. Barrel", "de", {5.28, 1e6}),
+    ("5,28 miljoen vaten", "nl", {5.28, 1e6}),
+    ("3 Mrd. Euro", "de", {3.0, 1e9}),
+    ("4,5 mld euro", "nl", {4.5, 1e9}),
+    ("12 mln aandelen", "nl", {12.0, 1e6}),
+    ("2 Billionen Dollar", "de", {2.0, 1e12}),  # German Billion = English trillion
+    ("2 biljoen dollar", "nl", {2.0, 1e12}),
+    ("1.234.567 Stellen", "de", {1234567.0}),
+    ("1,234,567 jobs", "en", {1234567.0}),
+    ("€3bn", "de", {3.0, 1e9}),                 # "bn" is 10^9 in any language
+])
+def test_numbers_scale_and_separators(text, lang, expected):
+    assert numbers(text, lang) == expected
+
+
+def test_english_billion_stays_ten_to_the_nine():
+    assert numbers("2 billion") == {2.0, 1e9}
+    assert numbers("2 billion") != numbers("2 Billionen", "de")
+
+
+def test_same_report_in_three_languages_is_no_conflict():
+    # the false conflict of fact s25-f1: Invezz EN, DE and NL give the same API figure
+    src_ = lambda v, lang: {"value_in_source": v, "language": lang}
+    assert _conflict([src_("5.28 million barrels", "en"), src_("5,28 Mio. Barrel", "de"),
+                      src_("5,28 miljoen vaten", "nl")]) is False
+    assert _conflict([src_("5.28 million barrels", "en"), src_("5,82 Mio. Barrel", "de")]) is True
+
+
+ART_DE = {
+    "e1": {"id": "e1", "publisher": "Invezz", "url": "https://x/e1", "date": "2026-11-18T08:00:00+00:00",
+           "language": "en", "text": "Crude inventories rose by 5.28 million barrels, API data showed."},
+    "d1": {"id": "d1", "publisher": "Invezz - German", "url": "https://x/d1", "date": "2026-11-18T08:05:00+00:00",
+           "language": "de", "text": "Die Rohölbestände stiegen um 5,28 Mio. Barrel, wie API-Daten zeigten."},
+}
+
+
+def test_verify_reads_each_source_in_its_language():
+    story = {"id": "s25", "title": "API", "article_ids": ["e1", "d1"]}
+    f = fact([src("e1", "Crude inventories rose by 5.28 million barrels", "5.28 million barrels"),
+              src("d1", "Die Rohölbestände stiegen um 5,28 Mio. Barrel", "5,28 Mio. Barrel")], value="5.28")
+    ok, rej = verify_facts(story, [f], ART_DE)
+    assert rej == [] and len(ok[0]["sources"]) == 2
+    assert ok[0]["conflict"] is False
+    assert {s["language"] for s in ok[0]["sources"]} == {"en", "de"}
+
+
+def test_prompt_keeps_attribution():
+    from src.facts import SYSTEM
+    assert "Keep attribution" in SYSTEM and "never the institution's decision" in SYSTEM
+
+
+def test_shared_scale_word_is_no_agreement():
+    s = lambda v: {"value_in_source": v}
+    assert _conflict([s("5.28 million barrels"), s("5.82 million barrels")]) is True
+    assert _conflict([s("23 million"), s("23 billion")]) is True
+    assert _conflict([s("$1.2 billion"), s("$1.2bn")]) is False
+    assert _conflict([s("1,000,000"), s("1 million")]) is False
+
+
+def test_rounded_value_is_no_conflict_but_real_difference_is():
+    s = lambda v, lang="en": {"value_in_source": v, "language": lang}
+    assert _conflict([s("$25.95 billion"), s("$25.9 billion")]) is False      # Disney, shortened
+    assert _conflict([s("96.7%"), s("96.4%")]) is True                         # FedWatch, two snapshots
+    assert _conflict([s("27.945", "nl"), s("27,945", "de")]) is False         # translation kept the separator
+
+
+# ---------------------------------------------------------------- attribution
+from src.facts import unattributed
+
+
+def test_view_without_speaker_is_caught():
+    q = "Hammack also argued that financial conditions are not yet sufficiently restrictive to slow economic growth."
+    assert unattributed("Financial conditions are not yet sufficiently restrictive.", q) == "Hammack"
+    assert unattributed("Cleveland Fed President Hammack argued conditions are not restrictive enough.", q) is None
+
+
+def test_data_said_by_an_agency_and_pronouns_pass():
+    assert unattributed("US producer prices rose 0.3%.", "Prices rose 0.3%, the Labor Department said.") is None
+    assert unattributed("Inflation is too high.", "He warned that inflation is too high.") is None
+    assert unattributed("Waller supports a hike.", "Waller, speaking in Frankfurt, supports a 25bps hike.") is None
+    assert unattributed("The Fed will hike.", "Waller, speaking in Frankfurt, supports a 25bps hike.") == "Waller"
+
+
+def test_verify_rejects_unattributed_view():
+    art = {"h1": {"id": "h1", "publisher": "ActionForex", "url": "https://x/h1", "date": "2026-11-18T08:00:00+00:00",
+                  "text": "Waller argued that a 25bps increase in December is likely."}}
+    story = {"id": "s17", "title": "Fed", "article_ids": ["h1"]}
+    bad = fact([src("h1", "Waller argued that a 25bps increase in December is likely", "25bps")], value="25")
+    ok, rej = verify_facts(story, [bad], art)
+    assert ok == [] and "Waller" in rej[0]["why"]
+    good = dict(bad, claim="Fed Governor Waller argued that a 25 basis point December hike is likely.")
+    ok, _ = verify_facts(story, [good], art)
+    assert len(ok) == 1

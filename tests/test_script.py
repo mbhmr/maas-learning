@@ -7,7 +7,7 @@ from src.script import (CLOSING, OPENING, WORDS_PER_SECOND, check_script, fit_le
 
 
 def mkfact(fid="s1-f1", story="s1", quote="Producer prices rose 0.3% in October.", date="2026-11-18T08:00:00+00:00"):
-    return {"id": fid, "story_id": story, "importance": 3, "conflict": False,
+    return {"id": fid, "story_id": story, "importance": 3, "conflict": False, "claim": quote, "period": "October",
             "sources": [{"quote": quote, "publisher": "Reuters", "date": date, "value_in_source": "0.3%"}]}
 
 
@@ -204,3 +204,175 @@ def test_missing_filters_long_and_digit_text(monkeypatch):
     _, missing = pick(monkeypatch, {"story_ids": ["s1"], "interests_without_story": [
         "Tesla", "", "  ", "one two three four five", "Top 10 stocks", "Solarenergie", "Gold"]})
     assert missing == ["Tesla", "Solarenergie"]  # at most two, no empty, no long, no digits
+
+
+# ---------------------------------------------------------------- numbers in the listener's language
+@pytest.mark.parametrize("lang,raw,expect", [
+    ("de", "Die Preise stiegen um 0.3 percent.", "Die Preise stiegen um 0,3 Prozent."),
+    ("de", "Ein Trust über $10.5 billion.", "Ein Trust über 10,5 Milliarden Dollar."),
+    ("de", "Japan gab ¥15.4 trillion aus.", "Japan gab 15,4 Billionen Yen aus."),
+    ("de", "Fast 59 millionen Aktien.", "Fast 59 Millionen Aktien."),
+    ("de", "Gold bei $3,852.67.", "Gold bei 3.852,67 Dollar."),
+    ("de", "Am 18. November, 1.000 Leute.", "Am 18. November, 1.000 Leute."),  # already German
+    ("de", "Ein Plus von 1 billion.", "Ein Plus von 1 Milliarde."),
+    ("nl", "Een stijging van 0.3 percent en $7.5B.", "Een stijging van 0,3 procent en 7,5 miljard dollar."),
+    ("en", "Prices rose 0.3 percent, $10.5 billion.", "Prices rose 0.3 percent, $10.5 billion."),
+])
+def test_localise(lang, raw, expect):
+    assert script.localise(raw, lang) == expect
+
+
+def test_localised_line_passes_number_check():
+    f = [mkfact(quote="They moved shares worth over $10.5 billion and rose 0.3%.")]
+    kept, dropped = run("Sie bewegten Aktien im Wert von $10.5 billion.", facts=f, lang="de")
+    assert kept and kept[0]["text"] == "Sie bewegten Aktien im Wert von 10,5 Milliarden Dollar."
+
+
+def test_german_billionen_is_trillion_and_wrong_scale_is_dropped():
+    # "10,5 Billionen" is 10.5 trillion in German: the source says billion, so the line must go
+    f = [mkfact(quote="Shares worth over $10.5 billion.")]
+    kept, dropped = run("Aktien im Wert von 10,5 Billionen Dollar.", facts=f, lang="de")
+    assert kept == [] and "numbers not in sources" in dropped[0]["why"]
+
+
+def test_english_word_in_german_line_dropped():
+    kept, dropped = run("Die US-Producer-Prices rose im Oktober um 0,3 Prozent.", lang="de")
+    assert kept == [] and "English" in dropped[0]["why"]
+
+
+def test_line_starting_with_bare_number_dropped():
+    kept, dropped = run("0.3 percent, that is the rise in producer prices in October.")
+    assert kept == [] and "bare number" in dropped[0]["why"]
+
+
+# ---------------------------------------------------------------- line kinds
+def test_kind_is_kept_and_defaults_to_claim():
+    kept, _ = check_script([{"text": "That keeps prices in focus for you.", "fact_ids": ["s1-f1"], "kind": "context"},
+                            line("Producer prices rose 0.3 percent.")], FACTS, "en")
+    assert [k["kind"] for k in kept] == ["context", "claim"]
+
+
+def test_context_with_new_number_dropped():
+    kept, dropped = check_script([{"text": "For you, a 2 percent target matters.", "fact_ids": ["s1-f1"],
+                                   "kind": "context"}], FACTS, "en")
+    assert kept == [] and "numbers not in sources" in dropped[0]["why"]
+
+
+def test_context_with_advice_dropped():
+    kept, dropped = check_script([{"text": "Time to buy the dollar.", "fact_ids": ["s1-f1"], "kind": "context"}],
+                                 FACTS, "en")
+    assert kept == [] and "advice" in dropped[0]["why"]
+
+
+def test_one_context_per_story():
+    ctx = {"text": "That keeps inflation in focus for you.", "fact_ids": ["s1-f1"], "kind": "context"}
+    kept, dropped = check_script([ctx, {**ctx, "text": "And rates too."}], FACTS, "en")
+    assert len(kept) == 1 and "second context" in dropped[0]["why"]
+
+
+# ---------------------------------------------------------------- greeting and sign-off
+@pytest.mark.parametrize("text,why", [
+    ("Morning, trader, central banks are running the show!", None),
+    ("Morning! Prices rose 3 percent.", "number"),
+    ("Morning! Two big stories.", "number"),
+    ("Morning trader, time to buy the dip!", "advice"),
+    ("Morning! A record day for you.", "superlative"),
+    (" ".join(["word"] * 21), "longer"),
+    ("", "empty"),
+])
+def test_check_host(text, why):
+    out, reason = script.check_host(text, "en", 20)
+    if why is None:
+        assert out == text and reason is None
+    else:
+        assert out is None and why in reason
+
+
+def test_host_words_short_and_long():
+    assert script.host_words({"seconds": 30}) == 6 and script.host_words({"seconds": 120}) == 20
+
+
+def test_frame_is_short_for_short_briefings():
+    short = script.frame_texts({"seconds": 30, "language": "en"})
+    assert short["sign_off"] == "" and len(short["opening"].split()) <= 5
+    assert sum(len(t.split()) for t in short.values()) <= 12  # the old fixed frame had 37 words
+
+
+# ---------------------------------------------------------------- judge and write_script
+def test_judge_sees_kind(monkeypatch):
+    seen = {}
+
+    def fake(step, system, user, schema, **kw):
+        seen["user"], seen["system"] = user, system
+        return {"verdicts": [{"n": 0, "supported": True, "why": ""}]}
+    monkeypatch.setattr(script, "ask_json", fake)
+    judge([{"text": "Why it matters.", "fact_ids": ["s1-f1"], "kind": "context"}], FACTS)
+    assert "KIND: context" in seen["user"]
+    assert "sticky" in seen["system"] and "whose view" in seen["system"]
+
+
+WS_FACTS = [mkfact("s1-f1", "s1", date="2026-11-18T08:00:00+00:00"),
+            mkfact("s2-f1", "s2", quote="Waller wants 50 basis points.", date="2026-11-14T08:00:00+00:00")]
+WS_STORIES = [{"id": "s1", "title": "PPI", "publishers": ["A"]}, {"id": "s2", "title": "Waller", "publishers": ["A"]}]
+
+
+def fake_steps(script_out, verdict=lambda n, text: True):
+    calls = {}
+
+    def fake(step, system, user, schema, **kw):
+        calls[step] = (system, user)
+        if step == "select":
+            return {"story_ids": ["s1", "s2"], "interests_without_story": []}
+        if step == "script":
+            return script_out
+        texts = [x.split("LINE: ", 1)[1] for x in user.splitlines() if "LINE: " in x]
+        return {"verdicts": [{"n": n, "supported": verdict(n, t), "why": "x"} for n, t in enumerate(texts)]}
+    return fake, calls
+
+
+LONG = {**PROFILE, "seconds": 120, "depth": "dense"}
+
+
+def test_write_script_uses_model_greeting(monkeypatch):
+    fake, calls = fake_steps({"greeting": "Morning, trader, central banks run the show!",
+                              "sign_off": "Trade sharp, see you soon!",
+                              "lines": [{"text": "Producer prices rose 0.3 percent.", "kind": "claim", "fact_ids": ["s1-f1"]},
+                                        {"text": "For you, that keeps inflation in focus.", "kind": "context",
+                                         "fact_ids": ["s1-f1"]}]})
+    monkeypatch.setattr(script, "ask_json", fake)
+    lines, dropped, spoken, frame = script.write_script(LONG, WS_STORIES, WS_FACTS)
+    assert frame["greeting"] == "Morning, trader, central banks run the show!"
+    assert frame["sign_off"] == "Trade sharp, see you soon!"
+    assert frame["opening"] == script.OPENING["en"] and frame["closing"] == script.CLOSING["en"]
+    assert [x["kind"] for x in lines] == ["claim", "context"]
+    assert "published on 18 November 2026" in calls["script"][0]
+    assert "STORY: Waller (OLDER: newest source 14 November 2026" in calls["script"][1]  # 4 days old
+    assert "STORY: PPI\n" in calls["script"][1]
+
+
+def test_write_script_falls_back_on_bad_greeting(monkeypatch):
+    fake, _ = fake_steps({"greeting": "Morning! Nvidia jumped 5 percent!", "sign_off": "Bye, Nvidia is back!",
+                          "lines": [{"text": "Producer prices rose 0.3 percent.", "kind": "claim", "fact_ids": ["s1-f1"]}]},
+                         verdict=lambda n, text: "Nvidia" not in text)  # the judge rejects the named company
+    monkeypatch.setattr(script, "ask_json", fake)
+    lines, dropped, _, frame = script.write_script(LONG, WS_STORIES, WS_FACTS)
+    assert frame["greeting"] == script.GREETING["en"] and frame["sign_off"] == script.SIGN_OFF["en"]
+    whys = [d["why"] for d in dropped if d.get("kind") == "host"]
+    assert any("number" in w for w in whys) and any("content check" in w for w in whys)
+    assert len(lines) == 1
+
+
+def test_write_script_short_has_no_sign_off(monkeypatch):
+    fake, _ = fake_steps({"greeting": "Hey!", "sign_off": "Bye now!",
+                          "lines": [{"text": "Producer prices rose 0.3 percent.", "kind": "claim", "fact_ids": ["s1-f1"]}]})
+    monkeypatch.setattr(script, "ask_json", fake)
+    _, _, _, frame = script.write_script({**PROFILE, "seconds": 30, "depth": "short"}, WS_STORIES, WS_FACTS)
+    assert frame["sign_off"] == "" and frame["opening"] == script.OPENING_SHORT["en"]
+
+
+def test_dash_pause_becomes_comma_but_range_stays():
+    kept, _ = run("Producer prices rose 0.3 percent — in October.")
+    assert kept[0]["text"] == "Producer prices rose 0.3 percent, in October."
+    assert script.DASH.sub(", ", "from 3.75 - 4.00") == "from 3.75 - 4.00"
+    out, _ = script.check_host("Hello, trader — rates are in play!", "en", 20)
+    assert out == "Hello, trader, rates are in play!"

@@ -23,6 +23,25 @@ Wählt die tatsächlichen Schwerpunkte nach Sichtung der Feeds. Zeigt mindestens
 - **Kosten:** billige Schritte (Code, kleines Modell) wo es geht, großes Modell nur wo nötig, und das sagen.
 - **Produkt:** wer zahlt (Verlag, Hörer oder Werbung) und **wie die synthetische Stimme offengelegt wird** (ein Satz am Anfang des Audios).
 
+**Aus der offiziellen Track-Beschreibung (Sourcera-Track-Description.pdf, 20.11. 17:10):**
+
+- **Vertrauen:** die Jury prüft **drei Aussagen** aus dem Audio gegen ihre Quellartikel.
+- **Kosten:** sie will die Kosten für den **ganzen Datensatz** (1.740 Artikel, rund 9 Mio. Zeichen) und eine Schätzung für die zehnfache Menge, mit Aufschlüsselung, welcher Schritt billiger Code, kleines Modell oder großes Modell ist.
+- **Vorgaben, die bei uns fehlen:** genannt sind **vier Hörerprofile** und **offizielle Mitteilungen** (Zentralbanken, Statistikämter). Beides fehlt im Datenpaket und in BuilderBase, und Sourcera ist nicht erreichbar.
+- **Entscheidung 20.11. 17:10:** wir bauen vier eigene Profile genau nach den Richtungen in IDEAS_AND_TIPS:
+  - FX-Trader, EN;
+  - "will nur wissen, was in der Welt los ist", EN;
+  - Belegger, NL;
+  - Privatanleger, DE.
+- **Offizielle Mitteilungen:** werden nicht gebaut, solange wir sie nicht haben. Im Pitch sagen wir: hier würde der Abgleich ansetzen.
+
+**Quellenlinks im Uni-Netz (20.11. 17:00):**
+
+- **Was passiert:** der DNS-Server der Uni Maastricht löst actionforex.com nicht auf. Die Seite selbst läuft (Antwort 200 über Cloudflare-DNS).
+- **Folge:** auf dem Campus-WLAN öffnen sich actionforex-Links nicht. Für die Live-Demo deshalb Handy-Hotspot nehmen.
+- **Was geprüft ist:** invezz, ibtimes und zacks enthalten unsere Zitate wörtlich.
+- **Robuster gemacht:** die Markierung im Originalartikel sucht jetzt von den ersten bis zu den letzten fünf Wörtern des Zitats.
+
 | Kriterium | Beweis in der Demo |
 |---|---|
 | Vertrauen und Genauigkeit | Eine gesprochene Zahl im Transkript anklicken und den Wert im Originalartikel zeigen. Jede Tatsachenbehauptung hat eine Quellen-ID. |

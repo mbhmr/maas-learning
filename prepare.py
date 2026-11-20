@@ -9,6 +9,7 @@ Writes output/<end>/stories.json and output/<end>/facts.json.
 """
 import argparse
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -19,14 +20,33 @@ from src.llm import ask_json
 
 WITH_FACTS = 40        # strongest stories get facts: enough for a wildcard listener with unusual interests
 PER_TOPIC = 3          # plus the best stories of every topic, so no kind of listener goes empty
+MAX_WITH_FACTS = 120   # hard cap on fact calls (about $0.001 each with gpt-4.1-mini)
+# Always worth facts, whatever their rank: an FX or rates listener needs them, and the editor model often files
+# them under "energy" or "politics" ("Dollar Surges to 2026 High", "ECB's Schnabel warns ..."). Title only.
+MACRO = re.compile(r"\b(fed|fomc|federal reserve|ecb|ezb|boj|boe|boc|snb|rba|rbnz|pboc|riksbank|central banks?|"
+                   r"notenbank|zentralbank|centrale bank|bank of (england|japan|canada)|lagarde|powell|schnabel|"
+                   r"bailey|ueda|nagel|rate[ -](hikes?|cuts?|decision)|interest rates?|policy rates?|yields?|"
+                   r"treasur(y|ies)|gilts?|bunds?|zinse?n?|leitzins|rente|inflation|inflatie|deflation|cpi|ppi|pce|"
+                   r"hicp|gdp|bip|payrolls|jobs report|unemployment|jobless|pmi|retail sales|industrial production|"
+                   r"trade (balance|deficit|surplus)|eurozone|euro area|dollar|euro|yen|sterling|pound|franc|yuan|"
+                   r"renminbi|aussie|kiwi|loonie|rupee|forex|fx|currenc(y|ies)|w(ä|ae)hrung(en)?|[a-z]{3}/[a-z]{3})\b",
+                   re.I)
+MACRO_TOPICS = {"central banks and macro", "currencies"}
 ARTICLES_PER_STORY = 4  # newest article per outlet, at most this many, sent to the model
+
+
+def must_have(story):
+    """Central banks, currencies, rates, inflation and every story that two or more outlets report."""
+    return (story.get("topic") in MACRO_TOPICS or bool(MACRO.search(story["title"]))
+            or len(story.get("publishers", [])) >= 2)
 
 
 def pick(stories):
     chosen = stories[:WITH_FACTS]
     for topic in {s.get("topic") for s in stories}:
         chosen += [s for s in stories if s.get("topic") == topic and s not in chosen][:PER_TOPIC]
-    return sorted(chosen, key=lambda s: s["rank"])
+    chosen += [s for s in stories if must_have(s) and s not in chosen]
+    return sorted(chosen, key=lambda s: s["rank"])[:MAX_WITH_FACTS]
 
 
 def evidence_articles(story, articles):

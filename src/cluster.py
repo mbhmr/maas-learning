@@ -29,7 +29,8 @@ ADVICE = re.compile(r"\b(stocks? to buy|buy now|should you (invest|buy)|investin
                     r"(a|good) (stock to )?buy\b|buy or sell|time to buy|worth buying|'?buy'? rating|bull of the day|bear of the day)", re.I)
 # Round-ups cover many events at once; mixing them into one story would glue unrelated news together.
 ROUNDUP = re.compile(r"\b(evening digest|morning (digest|brief)|things to know|what to watch|week ahead|"
-                     r"weekly (recap|wrap)|market wrap|stocks? to watch|abendbericht|morgenbericht|wochenausblick|avondbericht|ochtendbericht|avondoverzicht|ochtendoverzicht|abend-update|morgen-update)\b", re.I)
+                     r"weekly (recap|wrap)|market wrap|stocks? to watch|abendbericht|morgenbericht|wochenausblick|avondbericht|ochtendbericht|avondoverzicht|ochtendoverzicht|abend-update|morgen-update|"
+                     r"abend-report|morgen-report)\b", re.I)
 PRIORITY_SECTIONS = {"fed", "ecb", "boj", "boe", "inflation", "central banks", "economy", "united states",
                      "stock market", "earnings", "world", "politics", "business"}
 
@@ -161,13 +162,29 @@ _NOT_NAME = {"The", "Why", "What", "How", "Is", "Are", "Can", "Will", "This", "T
 
 COMMON = set("""his her him she who was did you now just out over says said claims calls reveals report reports
 warns amid about could down not while during former family man woman after before into first last next big top
-why what how when where new could should would year years day days week weeks time back""".split())
+why what how when where new could should would year years day days week weeks time back
+ceo cfo coo cto ipo etf etfs wall street january february march april may june july august september october
+november december""".split())  # job titles, instruments and months are written in capitals but name no event
 RARE_SHARE = 0.05     # a shared name only counts if at most 5 % of stories carry it ("Huang" yes, "Trump" no)
+FRESH = 5.0           # score bonus for a story whose newest article is from the last hours of the window
+HALF_LIFE_HOURS = 24  # ... halved every 24 hours: 5 just now, 2.5 a day old, 1.25 two days old, 0.16 five days old
 
 
 def _names(story):
     words = {w.lower() for h in story["all_headlines"] for w in _NAME.findall(h) if w not in _NOT_NAME}
     return words - STOP - COMMON
+
+
+def _core_names(story):
+    """Names of the title plus names in at least half of the story's own headlines.
+
+    "NVIDIA Leadership Crisis ... ETFs in Focus" names no person, its second headline says "Jensen Huang saga":
+    the title alone misses that. A name in one of 23 headlines does not count, so a big story stays its own
+    topic and cannot reach out to everything ("outage" once pulled a bank outage into a flight ground stop).
+    """
+    heads = story["all_headlines"]
+    count = Counter(n for h in heads for n in _names({"all_headlines": [h]}))
+    return _names({"all_headlines": [story["title"]]}) | {n for n, c in count.items() if 2 * c >= len(heads)}
 
 
 def proper_names(articles):
@@ -186,6 +203,15 @@ def proper_names(articles):
     return {w for w, c in cap.items() if c >= 2 and c >= 4 * low[w] and first[w] < 0.6 * c}
 
 
+def freshness(latest, end):
+    """The briefing is for the morning after `end`: news of the last 24 to 48 hours counts clearly more.
+
+    Measured from the story's NEWEST article, so a big story that ran all week and is still reported stays fresh.
+    """
+    hours = max(0.0, (end - latest).total_seconds() / 3600)
+    return FRESH * 0.5 ** (hours / HALF_LIFE_HOURS)
+
+
 def merge_and_rate(stories, articles, ask_json, end_day):
     """Returns re-ranked stories. The model only proposes; a merge needs a shared name in the headlines."""
     for s in stories:
@@ -194,22 +220,30 @@ def merge_and_rate(stories, articles, ask_json, end_day):
     out = ask_json("merge", MERGE_SYSTEM, listing, MERGE_SCHEMA, max_tokens=20000)
     by_id = {s["id"]: s for s in stories}
 
-    # names come from the story TITLE and are fixed before merging, so a growing story cannot collect ever more
-    # names and swallow everything ("outage", "flight" in one of 23 headlines once pulled in a bank outage)
+    # names are fixed BEFORE merging, so a growing story cannot collect ever more names and swallow everything
+    # ("outage", "flight" in one of 23 headlines once pulled in a bank outage). The seed (bigger story) offers
+    # only the names of its TITLE. The joining story matches with its own title, or with names from its other
+    # headlines (_core_names) only if TWO names agree: "Jensen Huang saga" + "NVIDIA" joins the Huang story,
+    # a lone "Bitcoin" in one of two Solana headlines does not join the Bitcoin story.
     proper = proper_names([articles[i] for s in stories for i in s["article_ids"]])
-    names = {s["id"]: _names({"all_headlines": [s["title"]]}) & proper for s in stories}
+    title_names = {s["id"]: _names({"all_headlines": [s["title"]]}) & proper for s in stories}
+    names = {s["id"]: _core_names(s) & proper for s in stories}
     df = Counter(n for s in stories for n in _names(s))  # rarity over ALL headlines: "Trump", "Nvidia" are common
     rare = {n for n, c in df.items() if c <= max(3, RARE_SHARE * len(stories))}
+
+    def joins(i, h):
+        shared = names[i] & title_names[h]
+        return bool(title_names[i] & title_names[h] & rare) or (bool(shared & rare) and len(shared) >= 2)
     merged_into, merges, refused = {}, 0, []
     for group in out["merge"]:
         ids = [i for i in dict.fromkeys(group) if i in by_id and i not in merged_into]
         if len(ids) < 2:
             continue
-        # split the proposal by code: biggest story first, every other story joins the first seed whose TITLE
-        # shares a rare proper name with its own title, otherwise it stays on its own
+        # split the proposal by code: biggest story first, every other story joins the first seed that shares
+        # a rare proper name with it (names fixed above), otherwise it stays on its own
         seeds = []
         for i in sorted(ids, key=lambda i: -len(by_id[i]["article_ids"])):
-            head = next((h for h in seeds if names[i] & names[h] & rare), None)
+            head = next((h for h in seeds if joins(i, h)), None)
             if head is None:
                 seeds.append(i)
                 continue
@@ -233,12 +267,11 @@ def merge_and_rate(stories, articles, ask_json, end_day):
         s["publishers"] = sorted({a["publisher"] for a in members})
         r = rating.get(s["id"], {"score": 2, "topic": "other"})
         s["importance"], s["topic"] = max(1, min(5, r["score"])), r["topic"]
-        days_old = (end - max(_ts(a) for a in members)).days
         s["latest"] = max(a["date"] for a in members)
         s["score"] = round(3 * s["importance"] + 2 * len(s["publishers"]) + math.log2(1 + len(members))
-                           + max(0, 2 - days_old), 2)
+                           + freshness(max(_ts(a) for a in members), end), 2)
         result.append(s)
     result.sort(key=lambda s: -s["score"])
     for n, s in enumerate(result, 1):
         s["rank"], s["id"] = n, f"s{n}"
-    return result, {"merges": merges, "refused": refused}
+    return result, {"merges": merges, "refused": refused, "proposed": out["merge"]}

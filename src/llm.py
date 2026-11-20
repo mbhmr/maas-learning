@@ -25,7 +25,7 @@ def _get_client():
         load_dotenv(ENV)  # read again: keys may have been added while the app was running
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is missing. Copy .env.example to .env and fill it in.")
-        _client = OpenAI()
+        _client = OpenAI(timeout=60, max_retries=2)  # a hung call must not block a listener for minutes
     return _client
 
 

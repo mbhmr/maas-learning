@@ -2,26 +2,35 @@
 
 1. select_stories: the small model picks the stories that fit this listener (code checks the ids
    and caps the number by the requested length). Interests with no story are said out loud.
-2. write_script: the small model writes spoken lines, each citing fact ids.
-3. check_script: a line survives only if every number and every superlative it speaks is in a
-   verified quote of the facts it cites. Then the code cuts the script to the requested length.
-Fixed opening and closing lines disclose the synthetic voice and rule out investment advice.
+2. write_script: the small model writes a greeting and a sign-off for this listener and the spoken lines,
+   each line a "claim" (news) or a "context" (why it matters to this listener), each citing fact ids.
+3. check_script: numbers are put into the listener's language (0,3 Prozent, Milliarden), then a line survives
+   only if every number and every superlative it speaks is in a verified quote of the facts it cites.
+   A second model judges the content. Then the code cuts the script to the requested length.
+Short fixed lines disclose the synthetic voice and rule out investment advice; the greeting and the sign-off
+are written by the model, checked by code (no numbers, no advice, short) and fall back to fixed text.
 """
 import re
+from datetime import date
 
 from .facts import numbers
 from .llm import SCRIPT_MODEL, ask_json
 
+# Fixed by code, never by the model. Kept short: in a 30 s briefing every second of frame is a second of news.
 OPENING = {
-    "en": "Good morning! This is your personal news briefing, read by an AI voice. Every figure links to its source in the transcript. Let's go!",
-    "de": "Guten Morgen! Das ist dein persönliches Nachrichten-Briefing, gesprochen von einer KI-Stimme. Jede Zahl ist im Transkript mit ihrer Quelle verlinkt. Los geht's!",
-    "nl": "Goedemorgen! Dit is je persoonlijke nieuwsbriefing, voorgelezen door een AI-stem. Elk cijfer linkt in het transcript naar de bron. Daar gaan we!",
+    "en": "Read by an AI voice, every figure links to its source.",
+    "de": "Gesprochen von einer KI-Stimme, jede Zahl ist mit ihrer Quelle verlinkt.",
+    "nl": "Voorgelezen door een AI-stem, elk cijfer linkt naar de bron.",
 }
-CLOSING = {
-    "en": "That's your briefing, have a great day! This is information, not investment advice.",
-    "de": "Das war dein Briefing, hab einen starken Tag! Das ist eine Information, keine Anlageberatung.",
-    "nl": "Dat was je briefing, maak er een topdag van! Dit is informatie, geen beleggingsadvies.",
-}
+OPENING_SHORT = {"en": "AI voice, every figure sourced.", "de": "KI-Stimme, jede Zahl mit Quelle.",
+                 "nl": "AI-stem, elk cijfer met bron."}
+CLOSING = {"en": "Information, not investment advice.", "de": "Information, keine Anlageberatung.",
+           "nl": "Informatie, geen beleggingsadvies."}
+# Used when the model's greeting or sign-off fails a check.
+GREETING = {"en": "Good morning!", "de": "Guten Morgen!", "nl": "Goedemorgen!"}
+SIGN_OFF = {"en": "That's your briefing.", "de": "Das war dein Briefing.", "nl": "Dat was je briefing."}
+SHORT_SECONDS = 60      # below: the short disclosure
+NO_SIGN_OFF_SECONDS = 45  # below: no sign-off, the closing alone
 NOTHING_ON = {
     "en": "Today's sources have nothing on {}.",
     "de": "Zu {} steht heute nichts in unseren Quellen.",
@@ -73,52 +82,132 @@ interests that no story covers, list those interests (in {LANG_NAME[profile['lan
 
 # ---------------------------------------------------------------- 2. writing
 
+LINE_KINDS = ("claim", "context")
 SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["lines"],
-    "properties": {"lines": {"type": "array", "items": {
-        "type": "object", "additionalProperties": False, "required": ["text", "fact_ids"],
-        "properties": {"text": {"type": "string"}, "fact_ids": {"type": "array", "items": {"type": "string"}}}}}},
+    "type": "object", "additionalProperties": False, "required": ["greeting", "sign_off", "lines"],
+    "properties": {
+        "greeting": {"type": "string"}, "sign_off": {"type": "string"},
+        "lines": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["text", "kind", "fact_ids"],
+            "properties": {"text": {"type": "string"}, "kind": {"type": "string", "enum": list(LINE_KINDS)},
+                           "fact_ids": {"type": "array", "items": {"type": "string"}}}}}},
+}
+
+NUMBER_STYLE = {
+    "en": 'Numbers as digits with the unit written out: "0.3 percent", "$10.5 billion", "25 basis points".',
+    "de": 'Numbers the German way: decimal comma ("0,3 Prozent"), "Milliarden" for billion, "Billionen" for '
+          'trillion, currency after the number ("10,5 Milliarden Dollar"). Every word is German: translate the '
+          'verbs and nouns of the English quotes ("rose" is "stieg", "producer prices" are "Erzeugerpreise"), '
+          'only names of companies, people and indices stay. A change is "um" ("stieg um 0,3 Prozent"), a level '
+          'is "auf" ("stieg auf 6,5 Prozent"), exactly as the quote has it. Always "du", never "Sie".',
+    "nl": 'Numbers the Dutch way: decimal comma ("0,3 procent"), "miljard" for billion, "biljoen" for '
+          'trillion, currency after the number ("10,5 miljard dollar"). Every word is Dutch: translate the verbs '
+          'and nouns of the English quotes ("rose" is "steeg"), only names of companies, people and indices stay. '
+          'A change is "met" ("steeg met 0,3 procent"), a level is "naar" ("steeg naar 6,5 procent"), exactly as '
+          'the quote has it. Always "je", never "u".',
 }
 
 
-def system_prompt(profile):
+def host_words(profile):
+    """Word cap for greeting and sign-off: 6 in a 30 s briefing, up to 20 in a long one."""
+    return max(6, min(20, round(profile["seconds"] / 6)))
+
+
+def frame_texts(profile):
+    """The fixed frame (and fallbacks) for this length: greeting, opening, sign_off, closing."""
     lang = profile["language"]
-    words = int(profile["seconds"] * WORDS_PER_SECOND[lang])
+    return {"greeting": GREETING[lang],
+            "opening": (OPENING_SHORT if profile["seconds"] < SHORT_SECONDS else OPENING)[lang],
+            "sign_off": SIGN_OFF[lang] if profile["seconds"] >= NO_SIGN_OFF_SECONDS else "",
+            "closing": CLOSING[lang]}
+
+
+def system_prompt(profile, day=None):
+    lang = profile["language"]
+    hw = host_words(profile)
+    frame = len(frame_texts(profile)["opening"].split()) + len(CLOSING[lang].split()) + hw  # hosts rarely use the cap
+    words = max(20, int(profile["seconds"] * WORDS_PER_SECOND[lang]) - frame)
+    sign_off = (f"- sign_off: at most {hw} words, a warm goodbye in the same spirit. No numbers, no facts, no advice."
+                if profile["seconds"] >= NO_SIGN_OFF_SECONDS else "- sign_off: empty string (too short for one).")
+    published = f" The briefing is published on {day}." if day else ""
     return f"""You write a spoken radio news briefing in {LANG_NAME[lang]} for this listener:
 {profile['description']}
-Depth: {profile['depth']}.
-Rules:
-- At most {words} words in total. Stories in the given order. Fewer facts told well beat many facts listed.
-- Written for the ear: short sentences, one per line.
-- You are a wide-awake, genuinely enthusiastic morning host who loves this stuff and makes the listener feel
-  smart. Real energy, not filler: start each story with a hook that is itself news (the most surprising
-  fact first, with its fact_ids), talk to the listener ("you"), tell them in one plain sentence why it matters
-  for someone like them, use exclamation marks where a real host would raise their voice. Link stories by
-  their content when they connect, otherwise just start the next one with its hook.
+Depth: {profile['depth']}.{published}
+
+What you return:
+- greeting: at most {hw} words, the host's hello to THIS listener, naming who they are and what this briefing
+  is about in general words (e.g. "Morning, trader, central banks are running the show!"). No numbers, no
+  company or person names, no events, no claims. Do not say it is a briefing or an AI, the code adds that.
+{sign_off}
+- lines: the news, one spoken sentence per line, at most {words} words in total, stories in the given order.
+
+Two kinds of lines:
+- kind "claim": what happened, only what the quoted source sentences say.
+- kind "context": one per story (two related stories told together share one), one sentence after that
+  story's claims: why it matters to THIS listener, in plain words ("That keeps intervention risk front and
+  centre for a yen trader."). It cites the facts it interprets. It says NO number and repeats no figure, adds
+  no fact, no cause and no link between facts that the quotes do not state, no advice, no prediction of prices
+  or decisions. Vary the wording from story to story, never the same opening twice.
+
+How a story is told:
+- Fewer facts told well beat many facts listed. Short sentences (at most about 25 words), written for the ear.
+- Open each story with its most important and newest fact as a full sentence that starts with who or what
+  ("US producer prices rose 0.3 percent in October"). Never start a line with a number ("0.3 percent, not
+  0.4 percent ..." is wrong).
+- When stories touch the same subject (two Fed officials, two central banks, a data release and the market
+  move), do not tell them one after the other: contrast them in ONE line that names both sides ("Fed
+  Governor Waller argues for 50 basis points, New York Fed President Williams for 25."), citing the facts of
+  both, then one context line for the pair.
+- An opinion, forecast or preference of one person or outlet is always said with its name ("Fed Governor
+  Waller wants 50 basis points"), never as a fact and never as what "the Fed" or "the market" leans to.
+- Never join two facts with "as", "while", "so", "because", "after", "weil", "während", "terwijl", "omdat"
+  unless one quote states that link: use two sentences. No judging words the quote does not use ("sticky",
+  "fragile", "hot", "strong").
+- Prefer the freshest facts. A story marked OLDER gets its date in the line ("on 14 November").
+- You are a wide-awake, genuinely enthusiastic morning host who makes the listener feel smart: talk to them
+  ("you"), exclamation marks where a real host would raise the voice. The energy is in HOW you say it, never
+  in WHAT happened: keep the source's verbs and size ("rose" stays "rose", never "soared").
 - Never use filler or stock radio phrases ("Next up", "Moving on", "Here's a big one", "Weiter geht es",
-  "Spannend:", "Interessant:"), never label a sentence, never comment on the briefing itself.
-- The energy is in HOW you say it, never in WHAT happened: keep the source's verbs and size ("rose" stays
-  "rose", never "soared" or "exploded"), no drama the quote does not have.
-- Every line lists the fact_ids it relies on in the fact_ids field, never in the text. Every sentence about
-  the news needs fact_ids. Only a sentence that says nothing factual may go without.
+  "Spannend:"), never label a sentence, never comment on the briefing itself.
+
+Facts and numbers:
+- Every line lists the fact_ids it relies on in fact_ids, never in the text.
 - Every number you say must appear in one of the quoted source sentences ("... says:"); numbers that only
   appear in the fact summary are NOT allowed. At most two numbers per line. Words like "highest", "record"
-  or "first time" only if the quote says so. Never compare or compute numbers yourself (no "doubled",
-  "three times"). Never say today, yesterday, tonight, this week or a weekday: the listener hears this later,
-  so say the date from the source line instead ("on 18 November").
-- Write numbers as digits with the unit written out ("0.3 percent" / "0,3 Prozent") and with the period.
+  or "first time" only if the quote says so. Never compare or compute numbers yourself (no "doubled").
+  Never say today, yesterday, tonight, this week or a weekday: say the date ("on 18 November").
+- {NUMBER_STYLE[lang]}
 - Name an outlet at most once per story. Always name both when a fact is marked CONFLICT and say they differ.
 - No recommendations, no buy or sell, never what listeners can or should do with their money, no predictions
-  of your own, no cheering for a stock or market move. Say whose shares moved (the company, not a person).
-- No greeting and no closing, those are added separately."""
+  of your own, no cheering for a stock or market move. Say whose shares moved (the company, not a person)."""
 
 
-def facts_prompt(stories, facts):
+def _newest(fact):
+    return max(s["date"][:10] for s in fact["sources"])
+
+
+def news_day(facts):
+    """The day of the briefing: the newest article date among the facts (ISO, '2026-11-18')."""
+    return max((_newest(f) for f in facts if f.get("sources")), default=None)
+
+
+def _age(day, newest):
+    return (date.fromisoformat(day) - date.fromisoformat(newest)).days
+
+
+def facts_prompt(stories, facts, day=None):
+    """The facts per story, most important first and, at equal importance, the newest first.
+
+    A story whose newest source is more than 2 days before the briefing day is marked OLDER.
+    """
     parts = []
     for st in stories:
-        parts.append(f"STORY: {st['title']}")
-        own = sorted((f for f in facts if f["story_id"] == st["id"]), key=lambda f: -f["importance"])
-        for f in own[:FACTS_PER_STORY]:
+        own = sorted((f for f in facts if f["story_id"] == st["id"]), key=_newest, reverse=True)
+        own = sorted(own, key=lambda f: -f["importance"])[:FACTS_PER_STORY]  # stable sort keeps newest first
+        newest = max((_newest(f) for f in own), default=None)
+        older = bool(day and newest) and _age(day, newest) > 2
+        parts.append(f"STORY: {st['title']}" + (f" (OLDER: newest source {_day(newest)}, say the date)" if older else ""))
+        for f in own:
             flag = " CONFLICT" if f["conflict"] else ""
             parts.append(f"- [{f['id']}]{flag} {f['claim']} ({f['period']})")
             for s in f["sources"]:
@@ -126,30 +215,56 @@ def facts_prompt(stories, facts):
     return "\n".join(parts)
 
 
-def _day(date):
-    y, m, d = date[:10].split("-")
+def _day(iso):
+    y, m, d = iso[:10].split("-")
     return f"{int(d)} {MONTHS_EN[int(m) - 1]} {y}"
 
 
 def write_script(profile, stories, facts):
-    """Returns (lines, dropped, spoken_stories). Each line: {'text', 'fact_ids'}."""
-    chosen, missing = select_stories(profile, stories, facts)
-    raw = ask_json("script", system_prompt(profile), facts_prompt(chosen, facts), SCHEMA, model=SCRIPT_MODEL)["lines"]
-    kept, dropped = check_script(raw, facts, profile["language"])
-    kept, judged = judge(kept, facts)
-    kept, cut = fit_length(kept, profile)
+    """Returns (lines, dropped, spoken_stories, frame).
+
+    lines: {'text', 'fact_ids', 'kind'} with kind "claim", "context" or "transition".
+    frame: {'greeting', 'opening', 'sign_off', 'closing'}. greeting and sign_off are the model's when they pass
+    the checks, otherwise the fixed fallback; sign_off is "" in very short briefings.
+    """
     lang = profile["language"]
+    chosen, missing = select_stories(profile, stories, facts)
+    day = news_day(facts)
+    out = ask_json("script", system_prompt(profile, day and _day(day)), facts_prompt(chosen, facts, day), SCHEMA,
+                   model=SCRIPT_MODEL)
+    kept, dropped = check_script(out["lines"], facts, lang)
+    frame = frame_texts(profile)
+    hosts = []
+    for role in ("greeting", "sign_off"):
+        if not frame[role]:
+            continue
+        text, why = check_host(out.get(role, ""), lang, host_words(profile))
+        if why:
+            dropped.append({"text": out.get(role, ""), "fact_ids": [], "kind": "host", "why": why})
+        else:
+            hosts.append({"text": text, "fact_ids": [], "kind": "host", "role": role})
+    judged_lines, judged = judge(kept + hosts, facts)
+    for line in judged_lines:
+        if line.get("role"):
+            frame[line["role"]] = line["text"]
+    kept = [line for line in judged_lines if not line.get("role")]
+    kept, cut = fit_length(kept, profile, sum(len(t.split()) for t in frame.values()))
     if missing:
-        kept.append({"text": NOTHING_ON[lang].format(", ".join(missing)), "fact_ids": []})
+        kept.append({"text": NOTHING_ON[lang].format(", ".join(missing)), "fact_ids": [], "kind": "transition"})
     story_of = {f["id"]: f["story_id"] for f in facts}
     spoken = {story_of[i] for line in kept for i in line["fact_ids"]}
-    return kept, dropped + judged + cut, [s for s in chosen if s["id"] in spoken]
+    return kept, dropped + judged + cut, [s for s in chosen if s["id"] in spoken], frame
 
 
-def fit_length(lines, profile):
-    """Hard cap by code: the model is told the length, the code makes sure of it."""
-    budget = profile["seconds"] * WORDS_PER_SECOND[profile["language"]] * 1.1
-    budget -= len(OPENING[profile["language"]].split()) + len(CLOSING[profile["language"]].split())
+def fit_length(lines, profile, reserved=None):
+    """Hard cap by code: the model is told the length, the code makes sure of it.
+
+    reserved: words of greeting, disclosure, sign-off and closing (default: the fixed opening and closing).
+    """
+    lang = profile["language"]
+    if reserved is None:
+        reserved = len(OPENING[lang].split()) + len(CLOSING[lang].split())
+    budget = profile["seconds"] * WORDS_PER_SECOND[lang] * 1.1 - reserved
     kept, used = [], 0
     for n, line in enumerate(lines):
         used += len(line["text"].split())
@@ -210,16 +325,86 @@ def unsupported_superlatives(text, quotes):
 
 FACT_ID = re.compile(r"\s*[\[(]?\bs\d+-f\d+\b[\])]?[.,;]?")
 
+# ---- numbers in the listener's language. Runs BEFORE the checks, so transcript, speech and check see one text.
+_EN_NUMBER = re.compile(r"(?<![\d.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+)(?![\d]|[.,]\d)")
+_CURRENCY = {"de": {"$": "Dollar", "€": "Euro", "¥": "Yen", "£": "Pfund"},
+             "nl": {"$": "dollar", "€": "euro", "¥": "yen", "£": "pond"}}
+_SCALE = {  # (English word or abbreviation after a digit, local word); case-sensitive: "Billion" is German
+    "de": [(r"\btrillions?\b", "Billionen"), (r"\bbillions?\b|\bbillionen\b", "Milliarden"),
+           (r"\bmillions?\b|\bmillionen\b", "Millionen"), (r"\bmilliarden\b", "Milliarden"),
+           (r"(?<=\d)\s?(?:tn|T)\b", " Billionen"), (r"(?<=\d)\s?(?:bn|B)\b", " Milliarden"),
+           (r"(?<=\d)\s?(?:mn|M)\b", " Millionen"),
+           (r"\b(?:per ?cent|percent)\b", "Prozent"), (r"\bbasis points?\b", "Basispunkte")],
+    "nl": [(r"\btrillions?\b", "biljoen"), (r"\bbillions?\b", "miljard"), (r"\bmillions?\b", "miljoen"),
+           (r"(?<=\d)\s?(?:tn|T)\b", " biljoen"), (r"(?<=\d)\s?(?:bn|B)\b", " miljard"),
+           (r"(?<=\d)\s?(?:mn|M)\b", " miljoen"),
+           (r"\b(?:per ?cent|percent)\b", "procent"), (r"\bbasis points?\b", "basispunten")],
+}
+_SINGULAR = {"de": [(r"(?<![\d.,])\b1 Milliarden\b", "1 Milliarde"), (r"(?<![\d.,])\b1 Millionen\b", "1 Million"),
+                    (r"(?<![\d.,])\b1 Billionen\b", "1 Billion")]}
+# English words that give away an untranslated German or Dutch line ("US-Producer-Prices rose im Oktober").
+ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares)\b",
+                              re.I)
+
+
+def _swap_number(m):
+    num = m.group(1)
+    if "," in num:  # 1,234.5 -> 1.234,5
+        return num.replace(",", "\0").replace(".", ",").replace("\0", ".")
+    whole, frac = num.split(".")
+    return num if len(frac) == 3 else f"{whole},{frac}"  # "1.000" is already German for a thousand
+
+
+def localise(text, lang):
+    """English number style in a German or Dutch line becomes local: 0.3 percent -> 0,3 Prozent,
+    $10.5 billion -> 10,5 Milliarden Dollar. For transcript and speech alike; English text stays as it is."""
+    if lang not in _SCALE:
+        return text
+    text = _EN_NUMBER.sub(_swap_number, text)
+    for sym, name in _CURRENCY[lang].items():
+        text = re.sub(rf"(?:US)?{re.escape(sym)}\s?(\d+(?:[.,]\d+)*(?:\s?(?:trillions?|billions?|millions?|tn|bn|mn|[TBM])\b)?)",
+                      rf"\1 {name}", text)
+    for pattern, repl in _SCALE[lang] + _SINGULAR.get(lang, []):
+        text = re.sub(pattern, repl, text)
+    return re.sub(r"\s{2,}", " ", text)
+
+
+ADVICE = re.compile(r"\b(buy|buying|sell(?!-)|selling|invest(ing)?|you should|time to|kauf\w*|verkauf\w*|investier\w*|"
+                    r"solltest|lohnt sich|koop\w*|kopen|verkoop\w*|verkopen|investeer\w*|zou je moeten)\b", re.I)
+BARE_NUMBER_START = re.compile(r"^\W*\d")
+DASH = re.compile(r"(?<!\d)\s+[—–-]\s+|\s+[—–-]\s+(?!\d)")  # a pause, not a range "3.75 - 4.00": comma
+
+
+def check_host(text, lang, max_words):
+    """Greeting or sign-off by the model: returns (text, None) or (None, why). Free text in speech, so strict."""
+    text = DASH.sub(", ", re.sub(r"\s+", " ", FACT_ID.sub("", text or ""))).strip()
+    if not text:
+        return None, "host line empty"
+    if re.search(r"\d", text) or numbers(text, lang):
+        return None, "host line has a number"
+    if len(text.split()) > max_words:
+        return None, f"host line longer than {max_words} words"
+    if ADVICE.search(text):
+        return None, "host line sounds like advice"
+    if unsupported_superlatives(text, []):
+        return None, "host line has a superlative"
+    if lang != "en" and ENGLISH_GIVEAWAY.search(text):
+        return None, "host line not in the listener's language"
+    return text, None
+
 
 def check_script(raw_lines, facts, lang):
+    """Each raw line: {'text', 'fact_ids', 'kind'} (kind "claim" if missing). Returns (kept, dropped)."""
     by_id = {f["id"]: f for f in facts}
-    kept, dropped = [], []
+    kept, dropped, context_for = [], [], set()
     for line in raw_lines:
+        kind = line.get("kind") if line.get("kind") in LINE_KINDS else "claim"
         text = FACT_ID.sub("", line["text"]).strip()  # ids belong in fact_ids, never in speech
         text = STOCK_PHRASES.sub("", text).strip()    # filler at the start goes, the sentence stays
+        text = localise(DASH.sub(", ", text), lang)   # what is checked is exactly what is shown and spoken
         if not text:
             continue
-        line = {**line, "text": text[0].upper() + text[1:]}
+        line = {**line, "text": text[0].upper() + text[1:], "kind": kind}
         ids = [i for i in line["fact_ids"] if i in by_id]
         if not ids:  # every spoken line needs a verified source, also a "harmless" short one
             dropped.append({**line, "why": "no source"})
@@ -233,7 +418,25 @@ def check_script(raw_lines, facts, lang):
         if sup:
             dropped.append({**line, "why": f"superlative not in sources: {sup}"})
             continue
-        kept.append({"text": line["text"], "fact_ids": ids})
+        if BARE_NUMBER_START.match(line["text"]):
+            dropped.append({**line, "why": "starts with a bare number"})
+            continue
+        if lang != "en" and ENGLISH_GIVEAWAY.search(line["text"]):
+            dropped.append({**line, "why": "English words in a non-English line"})
+            continue
+        if kind == "context":
+            story = by_id[ids[0]]["story_id"]
+            if ADVICE.search(line["text"]):
+                dropped.append({**line, "why": "context sounds like advice"})
+                continue
+            if re.search(r"\d", line["text"]):  # a reading, not a repeat of the figures
+                dropped.append({**line, "why": "context line with a figure"})
+                continue
+            if story in context_for:
+                dropped.append({**line, "why": "second context line for one story"})
+                continue
+            context_for.add(story)
+        kept.append({"text": line["text"], "fact_ids": ids, "kind": kind})
     return kept, dropped
 
 
@@ -245,14 +448,29 @@ JUDGE_SCHEMA = {
         "type": "object", "additionalProperties": False, "required": ["n", "supported", "why"],
         "properties": {"n": {"type": "integer"}, "supported": {"type": "boolean"}, "why": {"type": "string"}}}}},
 }
-JUDGE_SYSTEM = """You are a strict fact checker for a radio news script. Each numbered line comes with the quoted
-source sentences it cites. Mark a line supported=false if ANY of this is true:
-- it states something the quotes do not say (another subject, another direction up or down, another size,
-  another time, a cause or consequence the quotes do not state, a different company or person);
-- it tells listeners what to do with money, or what they can or should buy or sell, or predicts the future;
-- it uses today, yesterday, tonight, this week or a weekday (the listener hears it on a later day).
+JUDGE_SYSTEM = """You are a strict fact checker for a radio news script. Each numbered line has a KIND and the
+quoted source sentences it cites. Mark a line supported=false if it breaks a rule of its kind.
+
+KIND claim (news) is unsupported if:
+- it states something the quotes do not say: another subject, direction up or down, size, time, company or
+  person, or a cause or consequence the quotes do not state; a change said as a level or a level as a change
+  ("rose 0.3%" is not "rose to 0.3%", German "um" is not "auf", Dutch "met" is not "naar");
+- it links two facts with "as", "while", "so", "because", "after", "amid", "weil", "während", "nachdem",
+  "terwijl", "omdat", "doordat" or a similar link that no quote states;
+- it gives one person's or one outlet's opinion, forecast or preference as a fact or as a consensus without
+  naming whose view it is (e.g. "25 bp is the lean for the Fed meeting" when the quote is one official's
+  remarks; the official must be named);
+- it uses a judging word the quotes do not have and do not mean ("sticky", "fragile", "hot", "solid", "strong").
+KIND context (the host's reading of why a story matters to THIS listener) is allowed interpretation: saying
+why it matters, what it is relevant to, or how such news works in general is its job, do NOT reject it for
+that. It is unsupported only if it adds a new fact, number, event, person or cause about this story that the
+quotes do not have, links two facts as cause and effect or as depending on each other when no quote does,
+or predicts a price, a rate decision or a market move.
+KIND host (greeting or sign-off) is unsupported if it states any fact, event, number, name or prediction;
+naming the topics in general words is fine.
+EVERY kind is unsupported if it tells listeners what to do with money (what they can or should buy, sell or
+hold), or if it uses yesterday, tonight, this week or a weekday (claim and context lines: also "today").
 Enthusiasm, exclamation marks, addressing the listener and a plain explanation of a term are fine.
-A sentence saying why such news matters in general is fine if it adds no new fact about this event.
 Return one verdict per line, with a short reason when unsupported."""
 
 
@@ -264,7 +482,7 @@ def judge(lines, facts):
     for n, line in enumerate(lines):
         quotes = " | ".join(f"{s['publisher']} ({_day(s['date'])}): \"{s['quote']}\""
                             for i in line["fact_ids"] for s in by_id[i]["sources"])
-        listing.append(f"{n}. LINE: {line['text']}\n   QUOTES: {quotes}")
+        listing.append(f"{n}. KIND: {line.get('kind', 'claim')}\n   LINE: {line['text']}\n   QUOTES: {quotes or '(none)'}")
     verdicts = ask_json("judge", JUDGE_SYSTEM, "\n".join(listing), JUDGE_SCHEMA)["verdicts"]
     bad = {v["n"]: v["why"] for v in verdicts if not v["supported"] and 0 <= v["n"] < len(lines)}
     kept = [line for n, line in enumerate(lines) if n not in bad]

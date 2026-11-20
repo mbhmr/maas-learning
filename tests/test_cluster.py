@@ -153,3 +153,127 @@ def test_cluster_drops_advice_and_roundups():
     stories = cluster(arts, arts)
     ids = {i for s in stories for i in s["article_ids"]}
     assert ids == {"x1"}
+
+
+# ---------------------------------------------------------------- merge rule: names beyond the title
+def multi(spec, date=NOON, body_names=()):
+    """spec: {story_id: [headlines]}; the first headline is the title. One article (own outlet) per headline."""
+    body = " ".join(f"he said {w} left and then said {w} stayed." for w in body_names)
+    arts, stories, n = {}, [], 0
+    for sid, heads in spec.items():
+        ids = []
+        for h in heads:
+            aid = f"a{n}"
+            arts[aid] = {"id": aid, "headline": h, "publisher": f"Pub{n}", "date": date, "text": body}
+            ids.append(aid)
+            n += 1
+        stories.append({"id": sid, "title": heads[0], "article_ids": ids, "translations": {}})
+    return stories, arts
+
+
+def filler(d, nvidia=0):
+    for i in range(30):
+        d[f"f{i}"] = [f"Filler headline number {i} about weather"]
+    for i in range(nvidia):  # make "Nvidia" a common name, as in the real week (36 stories)
+        d[f"n{i}"] = [f"Nvidia chip item number {i}"]
+    return d
+
+
+def test_nvidia_split_is_joined_by_two_names_from_other_headline():
+    # s1/s2 of 18 Nov: the title of the smaller story names only "NVIDIA" (common), its other headline says "Huang"
+    d = filler({"s1": ["Jensen Huang Allies Push Nvidia Comeback", "Huang allies form war room", "Huang return?"],
+                "s2": ["NVIDIA Leadership Crisis Opens Door for Chip Rivals", "Stocks to gain from the Jensen Huang saga"]},
+               nvidia=6)
+    stories, arts = multi(d, body_names=["Huang", "Nvidia"])
+    out, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+    assert info["merges"] == 1
+    assert len(next(s for s in out if "Comeback" in s["title"])["article_ids"]) == 5
+
+
+def test_one_name_from_another_headline_is_not_enough():
+    d = filler({"s1": ["Bitcoin price faces a big test", "Bitcoin falls again", "Bitcoin slides"],
+                "s2": ["Solana faces a death cross", "Bitcoin weakness drags Solana lower"]})
+    stories, arts = multi(d, body_names=["Bitcoin", "Solana"])
+    _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+    assert info["merges"] == 0
+
+
+def test_seed_offers_only_its_title_names():
+    # the old over-merge: a name in the seed's OTHER headlines must not pull in a different event
+    d = filler({"s1": ["Nationwide ground stop halts all flights", "Duffy blames old systems", "Duffy wants funds"],
+                "s2": ["Duffy faces senate questions about bank outage"]})
+    stories, arts = multi(d, body_names=["Duffy"])
+    _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+    assert info["merges"] == 0
+
+
+def test_name_in_a_minority_of_headlines_does_not_count():
+    d = filler({"s1": ["Huang and Kress lead the chipmaker", "x"],
+                "s2": ["Chip stocks slide", "Chip stocks fall further", "Huang and Kress comment on chips"]})
+    stories, arts = multi(d, body_names=["Huang", "Kress"])
+    # s2 is the bigger story, so it is the seed; make s1 bigger to test s2 joining
+    stories[0]["article_ids"] += ["a99", "a98"]
+    arts["a99"] = dict(arts["a0"], id="a99")
+    arts["a98"] = dict(arts["a0"], id="a98")
+    _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+    assert info["merges"] == 0
+
+
+def test_ceo_is_not_a_name():
+    d = filler({"s1": ["Home Depot Names New CEO"], "s2": ["Chipmaker CEO Search Continues"]})
+    stories, arts = multi(d, body_names=["CEO"])
+    _, info = merge_and_rate(stories, arts, ask([["s1", "s2"]]), "2026-11-18")
+    assert info["merges"] == 0
+
+
+def test_roundup_abend_report_is_dropped():
+    assert ROUNDUP.search("Abend-Report: Nvidia schliesst Huangs Rueckkehr aus")
+
+
+# ---------------------------------------------------------------- freshness
+def test_freshness_halves_every_day():
+    from datetime import datetime, timedelta
+    from src.cluster import FRESH, freshness
+    end = datetime.fromisoformat("2026-11-18T23:59:59+00:00")
+    assert freshness(end, end) == FRESH
+    assert abs(freshness(end - timedelta(hours=24), end) - FRESH / 2) < 1e-9
+    assert freshness(end - timedelta(days=5), end) < 0.2
+
+
+def test_fresh_story_beats_old_one_but_big_multiday_story_still_leads():
+    d = {"old": ["US wholesale inflation rises less than expected", "PPI cooler"],
+         "fresh": ["Canada CPI holds at 3.1 percent"],
+         "big": ["Chipmaker leadership crisis deepens"] + [f"Leadership crisis day {i}" for i in range(5)]}
+    stories, arts = multi(d)
+    for aid in stories[0]["article_ids"]:
+        arts[aid]["date"] = "2026-11-13T14:39:00+00:00"
+    arts[stories[1]["article_ids"][0]]["date"] = "2026-11-18T11:20:00+00:00"
+    for n, aid in enumerate(stories[2]["article_ids"]):
+        arts[aid]["date"] = f"2026-11-1{3 + n % 5}T08:00:00+00:00"  # 13 to 17 Nov, newest 40 h before the end
+    out, _ = merge_and_rate(stories, arts, ask([], {"old": 4, "fresh": 4, "big": 4}), "2026-11-18")
+    assert [s["title"][:10] for s in out] == ["Chipmaker ", "Canada CPI", "US wholesa"]
+
+
+# ---------------------------------------------------------------- prepare.pick: which stories get facts
+def _st(rank, title, topic="other", publishers=("P",)):
+    return {"id": f"s{rank}", "rank": rank, "title": title, "topic": topic, "publishers": list(publishers)}
+
+
+def test_pick_always_takes_macro_fx_and_multi_outlet_stories():
+    import prepare
+    stories = [_st(r, f"Celebrity gossip {r}") for r in range(1, 201)]
+    stories[150] = _st(151, "Dollar Surges to 2026 High", "energy and commodities")
+    stories[160] = _st(161, "ECB's Schnabel warns on growth model", "politics and world")
+    stories[170] = _st(171, "Some company news", "companies and tech", publishers=("A", "B"))
+    stories[180] = _st(181, "Quiet item", "currencies")
+    chosen = {s["id"] for s in prepare.pick(stories)}
+    assert {"s151", "s161", "s171", "s181"} <= chosen
+    assert "s190" not in chosen
+    assert len(chosen) <= prepare.MAX_WITH_FACTS
+
+
+def test_pick_is_capped():
+    import prepare
+    stories = [_st(r, f"Fed item {r}") for r in range(1, 400)]
+    picked = prepare.pick(stories)
+    assert len(picked) == prepare.MAX_WITH_FACTS and picked[0]["rank"] == 1
