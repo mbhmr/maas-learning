@@ -43,10 +43,10 @@
 /* custom listener form */
 .custom { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 .custom label, .dayselect { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-.custom textarea, .custom select, .dayselect select {
+.custom textarea, .custom input:not([type]), .custom select, .dayselect select {
   background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; color: var(--ink); resize: vertical;
 }
-.custom textarea:focus, .custom select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.custom textarea:focus, .custom input:not([type]):focus, .custom select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .custom .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .custom input[type=range] { accent-color: var(--accent); }
 .dayselect { margin-top: 14px; }
@@ -187,4 +187,43 @@ mark { background: var(--mark); color: inherit; padding: 0 2px; border-radius: 3
   .line { font-size: 16.5px; padding: 10px; }
   .player { top: 8px; padding: 10px 12px; gap: 10px; }
   .play { width: 46px; height: 46px; }
+}
+
+/* view switch and newsroom */
+.views { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); margin-left: auto; }
+.views button { border: 0; background: none; color: var(--muted); font: 550 13.5px Geist, sans-serif; padding: 7px 14px; border-radius: 999px; cursor: pointer; }
+.views button.on { background: var(--grad); color: #fff; }
+.wide { max-width: 1040px; margin: 0 auto; }
+.newsroom { display: flex; flex-direction: column; gap: 12px; }
+.nr-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
+.nr-head h2 { margin: 4px 0 6px; font: 650 22px/1.2 Geist, sans-serif; letter-spacing: -.02em; }
+.nr-head p.muted { margin: 0; max-width: 62ch; font-size: 14px; }
+.toggle { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; color: var(--muted); cursor: pointer; line-height: 1.35; }
+.toggle input { margin-top: 2px; accent-color: var(--accent); }
+.nr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.nr-story { padding: 0; overflow: hidden; }
+.nr-row { width: 100%; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; background: none; border: 0; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.nr-row:hover { background: var(--surface-2); }
+.nr-rank { font: 600 13px "Geist Mono", monospace; color: var(--muted); }
+.nr-title { font-weight: 560; line-height: 1.35; }
+.nr-title small { display: block; color: var(--muted); font-weight: 400; font-size: 12.5px; margin-top: 2px; }
+.nr-meta { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.nr-meta b { color: var(--ink); }
+.nr-facts { color: var(--ok); }
+.nr-facts b { color: var(--ok); }
+.nr-articles { list-style: none; margin: 0; padding: 4px 18px 14px 72px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); }
+.nr-articles li { display: grid; grid-template-columns: 130px minmax(0, 1fr); column-gap: 12px; font-size: 13.5px; padding-top: 8px; }
+.nr-articles small { grid-column: 2; color: var(--muted); font-size: 12px; }
+.nr-pub { color: var(--muted); font-size: 12.5px; }
+.nr-articles a { color: var(--ink); text-decoration-color: var(--line); }
+.nr-articles a:hover { color: var(--accent); }
+.edition { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); margin-left: 8px; }
+@media (max-width: 760px) {
+  .views { margin-left: 0; }
+  .top { flex-wrap: wrap; }
+  .nr-row { grid-template-columns: 28px minmax(0, 1fr); padding: 12px 14px; }
+  .nr-meta { grid-column: 2; flex-wrap: wrap; gap: 10px; white-space: normal; }
+  .nr-articles { padding: 4px 14px 12px 14px; }
+  .nr-articles li { grid-template-columns: 1fr; }
+  .nr-articles small { grid-column: 1; }
 }

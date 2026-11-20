@@ -140,6 +140,63 @@ function Evidence({ claim, pinned, onFollow, lang, onClose }) {
   )
 }
 
+function Newsroom({ dayId }) {
+  const [data, setData] = useState(null)
+  const [err, setErr] = useState('')
+  const [open, setOpen] = useState(null)
+  const [only, setOnly] = useState(false)
+  useEffect(() => {
+    if (!dayId) return
+    setData(null); setErr('')
+    fetch(`/api/stories/${dayId}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(setData).catch(e => setErr(e.message))
+  }, [dayId])
+  if (err) return <div className="error">Could not load the story list: {err}</div>
+  if (!data) return <div className="panel muted">Loading every story of the day…</div>
+  const list = only ? data.stories.filter(s => s.selected) : data.stories
+  const articles = data.stories.reduce((n, s) => n + s.articleCount, 0)
+  return (
+    <section className="newsroom">
+      <div className="panel nr-head">
+        <div>
+          <p className="kicker">Newsroom · {data.day}</p>
+          <h2>{articles.toLocaleString()} articles, grouped into {data.stories.length} stories</h2>
+          <p className="muted">Same event from several outlets and languages becomes one story. Ranked by importance, outlets and freshness.
+            Selected stories get their facts extracted once a day; every listener's briefing is built from those.</p>
+        </div>
+        <label className="toggle"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} /> Only stories with checked facts</label>
+      </div>
+      <ol className="nr-list">
+        {list.map(s => (
+          <li key={s.id} className={`panel nr-story ${open === s.id ? 'open' : ''}`}>
+            <button className="nr-row" onClick={() => setOpen(open === s.id ? null : s.id)} aria-expanded={open === s.id}>
+              <span className="nr-rank">{s.rank}</span>
+              <span className="nr-title">{s.title}<small>{s.topic}</small></span>
+              <span className="nr-meta">
+                <span><b>{s.articleCount}</b> articles{s.articles.length > s.articleCount ? ` + ${s.articles.length - s.articleCount} translated` : ''}</span>
+                <span><b>{s.outlets.length}</b> outlets</span>
+                <span>{s.languages.map(l => l.toUpperCase()).join(' · ')}</span>
+                {s.hasFacts ? <span className="nr-facts"><b>{s.factCount}</b> facts</span> : <span className="muted">no facts</span>}
+              </span>
+            </button>
+            {open === s.id && (
+              <ul className="nr-articles">
+                {s.articles.map(a => (
+                  <li key={a.id}>
+                    <span className="nr-pub">{a.publisher}</span>
+                    <a href={a.url} target="_blank" rel="noreferrer">{a.headline}</a>
+                    <small>{a.language.toUpperCase()}{a.translationOf ? ' · translation' : ''} · {String(a.date).slice(0, 16).replace('T', ' ')}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
 function Timeline({ claims, duration, time, onSeek }) {
   if (!duration) return <div className="timeline idle" />
   return (
@@ -161,7 +218,7 @@ export default function App() {
   const [days, setDays] = useState([])
   const [dayId, setDayId] = useState('')
   const [preset, setPreset] = useState('trader')
-  const [custom, setCustom] = useState({ name: '', language: 'en', seconds: 90, depth: 'medium', description: '' })
+  const [custom, setCustom] = useState({ name: '', language: 'en', seconds: 90, depth: 'medium', description: '', mode: 'personal' })
   const [briefing, setBriefing] = useState(null)
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState(0)
@@ -173,6 +230,7 @@ export default function App() {
   const [pinned, setPinned] = useState(null)
   const [sheet, setSheet] = useState(false)
   const [tab, setTab] = useState('said')
+  const [view, setView] = useState('briefing')
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem('theme') || '' } catch { return '' }
   })
@@ -196,7 +254,8 @@ export default function App() {
     setBusy(true); setError(''); setStep(0); setPinned(null); setTab('said')
     const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 6000)
     try {
-      const b = await api('/api/briefing', { day: dayId, profile: { ...p, name: p.name || 'Listener' } })
+      const { mode = 'personal', ...prof } = p
+      const b = await api('/api/briefing', { day: dayId, profile: { ...prof, name: prof.name || 'Listener' }, mode })
       setBriefing(b); setTime(0); setPlaying(false)
     } catch (e) {
       setError(e.message)
@@ -260,10 +319,15 @@ export default function App() {
             <p>Your news, read aloud. Every sentence traceable to its source.</p>
           </div>
         </div>
+        <nav className="views" aria-label="View">
+          <button className={view === 'briefing' ? 'on' : ''} onClick={() => setView('briefing')}>Briefing</button>
+          <button className={view === 'newsroom' ? 'on' : ''} onClick={() => setView('newsroom')}>Newsroom</button>
+        </nav>
         <button className="ghost small" onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? '' : 'dark')}
           title="Theme">{theme === 'dark' ? '☾ Dark' : theme === 'light' ? '☀ Light' : '◐ Auto'}</button>
       </header>
 
+      {view === 'newsroom' ? <main className="wide"><Newsroom dayId={dayId} /></main> : (
       <main className="grid">
         <aside className="left">
           <section className="panel">
@@ -281,6 +345,10 @@ export default function App() {
             </div>
             {preset === 'custom' && (
               <form className="custom" onSubmit={(e) => { e.preventDefault(); generate() }}>
+                <label>Their name
+                  <input value={custom.name} maxLength={40} placeholder="e.g. Lena"
+                    onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
+                </label>
                 <label>Describe them
                   <textarea rows={4} required minLength={10} maxLength={1000} value={custom.description}
                     placeholder="e.g. A student in Maastricht who follows AI companies and crypto, wants it short and fun."
@@ -302,6 +370,9 @@ export default function App() {
                   <input type="range" min={30} max={180} step={15} value={custom.seconds}
                     onChange={(e) => setCustom({ ...custom, seconds: Number(e.target.value) })} />
                 </label>
+                <label className="toggle"><input type="checkbox" checked={custom.mode === 'edition'}
+                  onChange={(e) => setCustom({ ...custom, mode: e.target.checked ? 'edition' : 'personal' })} />
+                  Shared edition: one recording for everyone with similar interests, only the greeting is personal (about 18× cheaper at scale)</label>
                 <button className="primary" disabled={busy}>Make their briefing</button>
               </form>
             )}
@@ -345,6 +416,8 @@ export default function App() {
                 <div className="player-main">
                   <div className="player-meta">
                     <strong>{briefing.profile.name}</strong>
+                    {briefing.mode === 'edition' && briefing.edition && (
+                      <span className="edition" title={`Edition ${briefing.edition.key}`}>Shared edition · {briefing.edition.label}{briefing.edition.listeners > 1 ? ` · ${briefing.edition.listeners} listeners` : ''}</span>)}
                     <span>{intro ? "♪ station jingle" : `${LANGS[briefing.profile.language]} · ${fmt(time)} / ${fmt(duration)}`}</span>
                   </div>
                   <Timeline claims={claims} duration={duration} time={time} onSeek={seek} />
@@ -412,7 +485,7 @@ export default function App() {
           <Evidence claim={shown} pinned={!!pinned} lang={briefing?.profile.language}
             onFollow={() => setPinned(null)} onClose={() => { setSheet(false); setPinned(null) }} />
         </aside>
-      </main>
+      </main>)}
       {sheet && <div className="scrim" onClick={() => { setSheet(false); setPinned(null) }} />}
     </div>
   )
