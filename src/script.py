@@ -38,7 +38,8 @@ Rules:
 - About {words} words in total. Stories in the given order, most important first. Leave out stories
   and facts that do not matter to this listener.
 - One short spoken sentence per line. Every line lists the fact_ids it relies on. No line without facts.
-- Use only the given facts. Every number you say must come from those facts. Write numbers as digits
+- Use only the given facts. Every number you say must come from those facts. Never compare or compute
+  numbers yourself (no "doubled", "a quarter", "three times"). Write numbers as digits
   with the unit written out (e.g. "0.3 percent" / "0,3 Prozent"), always with the period it refers to.
 - If a fact is marked CONFLICT, say that the sources differ and name each source with its value.
 - Name the outlet when it helps trust ("according to ActionForex").

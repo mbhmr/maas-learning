@@ -20,13 +20,34 @@ def norm(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Numbers spoken as words also count, so "doubled" or "a quarter" cannot slip past the checker.
+# "one"/"ein" are left out on purpose: they are mostly articles ("one of the", "ein Anstieg").
+_WORDS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90, "hundred": 100,
+    # scale words: "23 million" vs "23 billion" must not pass as the same figure
+    "thousand": 1e3, "million": 1e6, "millions": 1e6, "billion": 1e9, "billions": 1e9, "trillion": 1e12,
+    "tausend": 1e3, "million": 1e6, "millionen": 1e6, "milliarde": 1e9, "milliarden": 1e9, "billion": 1e9,
+    "elf": 11, "dreizehn": 13, "fünfzehn": 15, "dreißig": 30, "vierzig": 40, "fünfzig": 50,
+    "half": 0.5, "halved": 0.5, "quarter": 0.25, "third": 1 / 3, "twice": 2, "double": 2, "doubled": 2,
+    "triple": 3, "tripled": 3, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "sechs": 6, "sieben": 7,
+    "acht": 8, "neun": 9, "zehn": 10, "zwölf": 12, "zwanzig": 20, "hundert": 100, "halb": 0.5,
+    "halbiert": 0.5, "hälfte": 0.5, "viertel": 0.25, "drittel": 1 / 3, "doppelt": 2, "verdoppelt": 2,
+    "verdreifacht": 3, "twee": 2, "drie": 3, "vier": 4, "tien": 10, "helft": 0.5, "verdubbeld": 2,
+}
+
+
 def numbers(text, lang="en"):
-    """All numbers in a text as floats. '6.5%' -> 6.5, German '6,5 %' -> 6.5, '1,000' -> 1000."""
+    """All numbers in a text as floats. '6.5%' -> 6.5, German '6,5 %' -> 6.5, '1,000' -> 1000, 'doubled' -> 2."""
     if lang == "de":
         text = re.sub(r"(?<=\d)\.(?=\d{3}\b)", "", text).replace(",", ".")
     else:
         text = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
-    return {float(n) for n in re.findall(r"\d+(?:\.\d+)?", text)}
+    found = {float(n) for n in re.findall(r"\d+(?:\.\d+)?", text)}
+    found |= {float(_WORDS[w]) for w in re.findall(r"[a-zäöüß]+", text.lower()) if w in _WORDS}
+    return found
 
 
 SCHEMA = {
