@@ -1,16 +1,17 @@
 /* One accent (ink blue), everything else paper and ink. No shadows, no gradients. */
 :root {
-  --bg: #faf9f7;
+  --bg: #fbfaf6;
   --surface: #ffffff;
   --surface-2: #f2f1ee;
   --ink: #1b1c1f;
   --muted: #5c5e65;
   --faint: #686a70;
-  --line: #dfddd8;
+  --line: #e3e0d9;
+  --line-strong: #c4c0b7;
   --accent: #24467a;
   --accent-ink: #ffffff;
   --accent-soft: rgba(36, 70, 122, .07);
-  --mark: rgba(36, 70, 122, .14);
+  --mark: rgba(36, 70, 122, .13);
   --bad: #9b3328;
   --scrim: rgba(20, 20, 24, .35);
   color-scheme: light;
@@ -34,13 +35,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #151618; --surface: #1c1d20; --surface-2: #25262a; --ink: #e8e6e1; --muted: #a4a39f; --faint: #9a9b9f;
-    --line: #313236; --accent: #93b2e4; --accent-ink: #10141b; --accent-soft: rgba(147, 178, 228, .09);
+    --line: #2e2f33; --line-strong: #4a4b50; --accent: #93b2e4; --accent-ink: #10141b; --accent-soft: rgba(147, 178, 228, .09);
     --mark: rgba(147, 178, 228, .2); --bad: #e58f80; --scrim: rgba(0, 0, 0, .5); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #151618; --surface: #1c1d20; --surface-2: #25262a; --ink: #e8e6e1; --muted: #a4a39f; --faint: #9a9b9f;
-  --line: #313236; --accent: #93b2e4; --accent-ink: #10141b; --accent-soft: rgba(147, 178, 228, .09);
+  --line: #2e2f33; --line-strong: #4a4b50; --accent: #93b2e4; --accent-ink: #10141b; --accent-soft: rgba(147, 178, 228, .09);
   --mark: rgba(147, 178, 228, .2); --bad: #e58f80; --scrim: rgba(0, 0, 0, .5); color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -56,3 +57,7 @@ button, input, select, textarea { font: var(--t-ui)/1.4 var(--f-ui); color: inhe
 a { color: inherit; }
 ::selection { background: var(--mark); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* the font shorthand used across App.css resets the figure style on every element it touches: lining figures everywhere,
+   so 0.3% never reads as o.3% (tabular figures still come from font-variant-numeric where set) */
+*, *::before, *::after { font-feature-settings: "lnum" 1 !important; }

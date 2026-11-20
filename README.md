@@ -58,9 +58,12 @@ streamlit run app.py                      # fallback app: describe a listener, g
 python eval/evaluate.py                   # score against our hand-built answer key (needs eval/answer_key.json, kept local)
 ```
 
-The player has two views: **Briefing** (presets, a wildcard listener with an optional shared-edition switch, player,
-transcript with a source per sentence, evidence panel, and the lines the checker blocked) and **Newsroom** (every
-story of the day with its outlets, languages and articles, to compare our grouping with the raw feed).
+The player has two views: **Briefing** (four preset listeners and "your own listener" with an optional shared-edition
+switch; player with speed and volume; the transcript with the word being spoken marked and a footnote number per
+sourced sentence; the quotes of the selected sentence beside it, on phones as a sheet from below; and one folded
+section "How this briefing was made" with the pipeline numbers, the stories, the blocked lines and the optional chime)
+and **Today's ranking** (every story of the day in rank order with a one-line reason, the stories this listener hears
+marked, and each story's articles one click away; a story's optional `reason` field replaces the computed line).
 
 ## API (for the player)
 
@@ -75,6 +78,7 @@ At most 4 briefings are built at once and 60 per hour; beyond that the API answe
 { "audioUrl": "/api/audio/2026-11-18/<key>.mp3",
   "claims": [ { "id": "c3", "text": "spoken sentence", "kind": "host|disclosure|claim|context|transition",
                 "start": 12.4, "end": 16.9,            // seconds in the MP3; null if no audio or no timing
+                "words": [[12.4, 12.7, 0, 5], ...],    // per written word: start s, end s, char start, char end in text
                 "sources": [ { "articleId", "publisher", "date", "url", "quote", "evidenceUrl", "value", "conflict",
                                "translations": {"de": {"url", "publisher"}} } ] } ],
   "profile": {...}, "stories": [...], "dropped": [ { "text", "why" } ] }
@@ -85,8 +89,9 @@ audio keeps playing. `dropped` lists lines the checker removed, worth showing ("
 ## Sound (for the player)
 
 Three fixed sounds, made once with `python -m src.sound` (ElevenLabs Music and Sound Effects), served by
-`GET /api/sound/{name}.mp3`. **Today the player plays only the `jingle`**, once before the briefing starts. `verified` and `conflict` exist and are served, but the player does not play them yet. Intended use: `verified` at the `end` of each claim
-with `kind: "claim"`, and `conflict` instead when one of its sources has `conflict: true`. Any other name is 404.
+`GET /api/sound/{name}.mp3`. The player plays the `jingle` once before the briefing starts. `verified` and `conflict` are an opt-in chime
+(switch in "How this briefing was made"): `verified` at the `end` of each claim with `kind: "claim"`, and `conflict`
+instead when one of its sources has `conflict: true`. Any other name is 404.
 To let the listener hear the original wording, `POST /api/quote-audio` with `{"quote": source.quote, "lang": "en|de|nl"}`
 returns an MP3 of that quote in a calm voice. Send the `quote` exactly as it came in the briefing: only quotes of
 checked facts are read aloud, anything else is 404, and each quote is generated once and then served from cache.
