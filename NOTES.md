@@ -73,11 +73,12 @@ Die drei Personen ordnen sich die Rollen beim Kick-off zu. Jede Rolle prüft ans
 
 | Wer | Teil | Dateien | Konkret bis Fr 18:00 |
 |---|---|---|---|
-| Matthias | Daten, Vertrauen, KI-Anbindung | `src/`, `prepare.py`, `one_story.py` | Echter Durchlauf, Bündelung gegen Musterfälle prüfen, Kosten messen |
-| Danni | Hörerlebnis und Oberfläche | `app.py`, `src/tts.py` | Stimme auswählen (EN und DE), Zahlen und Namen im Audio gegenhören, Oberfläche glätten, Überraschungshörer testen |
-| Naomi (Lead) | Produkt, Pitch, Abgabe | `NOTES.md`, Folien, Video | Käufer und Redaktionsablauf, Kostenfolie 1× und 10×, Pitch-Skript, 3-Minuten-Video, BuilderBase-Abgabe |
+| Matthias (mit Claude Code) | Pipeline: Daten, Bündeln, Fakten, Prüfung, Skript, Kosten | `src/`, `prepare.py`, `one_story.py` | Ganzen Tag vorbereiten, Skript natürlicher, Widersprüche zuverlässig, Kosten 1× und 10× messen |
+| Danni | Oberfläche und Klang | `app.py`, `src/tts.py`, Branch `audio-ui` | Oberfläche für die Demo bauen (Player, Transkript, Quellen, Überraschungshörer), Stimme EN und DE auswählen, Audio gegenhören |
+| Naomi (Lead) mit Matthias | Produkt, Pitch, Video, Abgabe | Folien, Video, Branch `pitch` | Käufer und Redaktionsablauf, Kostenfolie, Pitch-Skript, 3-Minuten-Video, BuilderBase-Abgabe |
 
-Gegenseitig prüfen: Danni hört Matthias' Fakten gegen, Naomi probiert die App wie die Jury, Matthias prüft die Zahlen auf den Folien.
+Gegenseitig prüfen: Danni hört die Fakten gegen, Naomi probiert die App wie die Jury, Matthias prüft die Zahlen auf den Folien.
+Schnittstelle zwischen Pipeline und Oberfläche: `build_briefing()` in `src/briefing.py` liefert `briefing.json` (Format siehe "Gemeinsame Übergabe"). Danni ändert nur `app.py` und `src/tts.py`, Matthias den Rest, so gibt es keine Konflikte.
 
 | Wann (Ortszeit) | Ergebnis |
 |---|---|
