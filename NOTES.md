@@ -150,4 +150,4 @@ Das Textbeispiel rechnet mit veröffentlichten GPT‑4.1-mini-Referenzpreisen vo
 
 Grundlage sind „MAIN Summit - Challenge Track“, Sourcera-Abschnitt (PDF-Seiten 11–19), „Getting started with BuilderBase“, insbesondere Seiten 4–11, und der Download-Link aus „Sourcera-Data-Link“.
 
-**Abgabe (entschieden 20.11. 23:35, Matthias):** Repo plus 3-Minuten-Video, kein öffentlicher Link. Grund: Die App zeigt wörtliche Zitate, die Newstex-Lizenz verbietet das öffentliche Zeigen von Artikeltext, und ein öffentlicher Deploy bräuchte Naomis Okay und ein neues Konto. Die Jury braucht Zugriff aufs Repo: es öffentlich machen oder die Jury einladen (Naomi entscheidet). Ersatz: Code als ZIP aus `git archive`.
+**Abgabe (entschieden 20.11. 23:35, Matthias):** Repo plus 3-Minuten-Video, kein öffentlicher Link. Grund: Die App zeigt wörtliche Zitate, die Newstex-Lizenz verbietet das öffentliche Zeigen von Artikeltext, und ein öffentlicher Deploy bräuchte Naomis Okay und ein neues Konto. Die Jury braucht Zugriff aufs Repo: es öffentlich machen oder die Jury einladen (Naomi ist einverstanden, 20.11. 23:36). Ersatz: Code als ZIP aus `git archive`.
