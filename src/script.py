@@ -318,7 +318,8 @@ def repair(profile, chosen, facts, day, kept, dropped, judged):
                      f'{d["why"]}' for d in blocked)
     user = (facts_prompt(chosen, facts, day) + "\n\nThe checker blocked these lines. Rewrite each one so it passes: "
             "one short sentence (at most 30 words), only what its quotes say, the same fact ids, no figure in a "
-            "context line. Leave out a line you cannot fix fully.\n" + todo)
+            "context line. A relative time word (last week, Tuesday) goes: name a date only if a quote states "
+            "it, otherwise leave the time out. Leave out a line you cannot fix fully.\n" + todo)
     try:
         out = ask_json("repair", system_prompt(profile, day and _day(day)), user, REPAIR_SCHEMA, model=SCRIPT_MODEL)
     except Exception:  # the briefing is still valid without the repair
