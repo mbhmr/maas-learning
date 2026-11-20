@@ -278,6 +278,13 @@ def _day(iso):
     return f"{int(d)} {MONTHS_EN[int(m) - 1]} {y}"
 
 
+def with_headlines(facts, stories):
+    """Copies of the facts whose sources carry their article's headline (from stories.json), for the person check."""
+    heads = {h["id"]: h.get("headline", "") for st in stories for h in st.get("headlines", [])}
+    return [{**f, "sources": [{**src, "headline": heads.get(src.get("article_id"), "")} for src in f.get("sources", [])]}
+            for f in facts]
+
+
 def in_span(stories, facts, days):
     """Only stories whose newest article falls in the last `days` days of the news (1 = the last day only).
     None or 0: everything prepare.py put in the window (13 to 18 Nov for the demo day)."""
@@ -298,6 +305,7 @@ def write_script(profile, stories, facts):
     lang = profile["language"]
     facts = current_facts(facts)  # stale facts are never offered, so they cannot be cited either
     stories = in_span(stories, facts, profile.get("days"))
+    facts = with_headlines(facts, stories)
     chosen, missing = select_stories(profile, stories, facts)
     day = news_day(facts)
     out = ask_json("script", system_prompt(profile, day and _day(day)), facts_prompt(chosen, facts, day), SCHEMA,
@@ -618,7 +626,7 @@ _SINGULAR = {"de": [(r"(?<![\d.,])\b1 Milliarden\b", "1 Milliarde"), (r"(?<![\d.
 # that German and Dutch never use ("with no evidence it is", "could still access their accounts").
 ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares|"
                               r"the(?!\s+(?-i:[A-Z]))|with|could|their|because|which|would|after|about|from|this|"
-                              r"those)\b"  # "The Gentlemen" is a name, "these" is Dutch for thesis
+                              r"those|that|you|your|as much as)\b"  # "The Gentlemen" is a name, "these" is Dutch
                               r"|\bon \d{1,2} [a-z]", re.I)
 
 
@@ -657,10 +665,18 @@ def people(facts):
     return {m.group(1).split()[-1] for f in facts for m in _TITLED.finditer(f.get("claim", ""))}
 
 
-def unquoted_people(text, quotes, names):
-    """The names spoken in `text` that none of its quotes contains ("Wallers" in German counts as Waller)."""
+def unquoted_people(text, quotes, names, headlines=()):
+    """The names spoken in `text` that none of its quotes contains ("Wallers" in German counts as Waller).
+
+    A quote often says "the 63-year-old" or "he" where its own article's headline names the person ("Jensen Huang
+    keeps door open ..."): that headline backs the name, but only when the quote names no other person, so a quote
+    about Williams in an article headlined "Waller ..." still cannot carry Waller (on 18 Nov every Huang line was
+    blocked for this, eval/benchmark.py must_hear)."""
     src = " ".join(quotes).lower()
-    return sorted(n for n in names if re.search(rf"\b{re.escape(n)}", text) and n.lower() not in src)
+    quoted = {n for n in names if n.lower() in src}
+    heads = " ".join(headlines).lower() if not quoted else ""
+    return sorted(n for n in names if re.search(rf"\b{re.escape(n)}", text) and n.lower() not in src
+                  and n.lower() not in heads)
 
 
 # "after hours", "premarket" and their German and Dutch words say WHEN a move happened. "Nvidia rose 1.6 percent in
@@ -740,7 +756,8 @@ def check_script(raw_lines, facts, lang):
         if sup:
             dropped.append({**line, "why": f"superlative not in sources: {sup}"})
             continue
-        who = unquoted_people(line["text"], quotes, names)
+        who = unquoted_people(line["text"], quotes, names,
+                              [s.get("headline", "") for i in ids for s in by_id[i]["sources"]])
         if who:
             dropped.append({**line, "why": f"person not in its quotes: {', '.join(who)}"})
             continue

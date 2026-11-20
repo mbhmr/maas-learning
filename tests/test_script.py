@@ -705,3 +705,13 @@ def test_in_span_keeps_only_the_last_days():
     assert in_span(stories, facts, None) == stories
     week = {"name": "x", "language": "en", "seconds": 90, "depth": "medium", "description": "y", "days": 6}
     assert "last 6 days" in system_prompt(week) and "last 6 days" not in system_prompt({**week, "days": None})
+
+
+def test_headline_of_the_quoted_article_backs_a_name_only_if_the_quote_names_no_one_else():
+    from src.script import unquoted_people
+    names = {"Huang", "Waller", "Williams"}
+    line = "Jensen Huang resigned as Nvidia CEO."
+    assert unquoted_people(line, ["The 63-year-old resigned last week."], names) == ["Huang"]
+    assert unquoted_people(line, ["The 63-year-old resigned last week."], names, ["Jensen Huang keeps door open"]) == []
+    assert unquoted_people("Waller wants 25 basis points.", ["Williams said 25 basis points is right."], names,
+                           ["Fed's Waller calls for 50bps"]) == ["Waller"]
