@@ -618,3 +618,27 @@ def test_first_claim_of_a_story_must_name_its_subject():
              {"text": "It lasted almost a day.", "kind": "claim", "fact_ids": ["s1-f1"]}]
     kept, _ = script.dedupe(lines, [f1], "en")
     assert len(kept) == 2  # a follow-up in the same story may say "it"
+
+
+def test_dedupe_drops_same_news_from_another_story():
+    from src.script import dedupe
+    facts = [{"id": "a-f1", "story_id": "a"}, {"id": "b-f1", "story_id": "b"}]
+    lines = [{"kind": "claim", "text": "US retail sales rose 0.2 percent in October, and sales excluding autos rose 0.6 percent.", "fact_ids": ["a-f1"]},
+             {"kind": "claim", "text": "US retail sales growth slowed to 0.2 percent, excluding autos 0.6 percent.", "fact_ids": ["b-f1"]}]
+    kept, dropped = dedupe(lines, facts, "en")
+    assert len(kept) == 1 and dropped[0]["why"] == "repeats an earlier line"
+
+
+def test_dedupe_keeps_other_story_sharing_only_a_date():
+    from src.script import dedupe
+    facts = [{"id": "a-f1", "story_id": "a"}, {"id": "b-f1", "story_id": "b"}]
+    lines = [{"kind": "claim", "text": "On 16 November in 2026 United delayed 418 flights.", "fact_ids": ["a-f1"]},
+             {"kind": "claim", "text": "On 16 November in 2026 Chase reported a bug.", "fact_ids": ["b-f1"]}]
+    kept, _ = dedupe(lines, facts, "en")
+    assert len(kept) == 2
+
+
+def test_german_unnamed_start_is_dropped():
+    from src.script import UNNAMED_START
+    assert UNNAMED_START.match("Die Störung begann mit Instabilität")
+    assert not UNNAMED_START.match("Die Flugsicherung meldete")

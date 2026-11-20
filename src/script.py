@@ -365,8 +365,10 @@ def tidy(text):
 
 
 UNNAMED_START = re.compile(r"^(it|its|they|their|he|she|his|her|this|these|that|those|the (outage|company|firm|bank|"
-                           r"agency|group|stock|shares|deal|index|report|move|decision)|er|sie|es|dies|der konzern|"
-                           r"die bank|zij|hij|dit|deze|dat|het bedrijf|de bank)\b", re.I)
+                           r"agency|group|stock|shares|deal|index|report|move|decision|disruption|incident|attack|"
+                           r"probe)|er|sie|es|dies|der (konzern|ausfall|vorfall|angriff|bericht)|"
+                           r"die (bank|störung|firma|aktie|behörde)|das (unternehmen|papier)|zij|hij|dit|deze|dat|"
+                           r"het (bedrijf|aandeel|incident)|de (bank|storing|aanval))\b", re.I)
 TOP_UP_BELOW = 0.8  # a briefing under 80 % of its requested length gets one more round of stories
 
 
@@ -399,6 +401,11 @@ def top_up(profile, stories, facts, day, chosen, kept, reserved):
     return chosen + more, kept, dropped + judged + orphans + twice
 
 
+def _telling(figures):
+    """Figures that identify a piece of news: not a day of the month and not a year."""
+    return {n for n in figures if not (n.is_integer() and (1 <= n <= 31 or 1900 <= n <= 2099))}
+
+
 def dedupe(lines, facts, lang):
     """The last word on repeats, over the whole briefing: rewrites from the repair round were only checked among
     themselves. A claim is a repeat when an earlier claim of the same story shares one of its figures."""
@@ -420,8 +427,11 @@ def dedupe(lines, facts, lang):
             told |= stories
         if line.get("kind", "claim") == "claim":
             figures = numbers(line["text"], lang)
-            if figures and any(k.get("kind", "claim") == "claim" and stories & {story_of.get(i) for i in k["fact_ids"]}
-                               and figures & numbers(k["text"], lang) for k in kept):
+            if figures and any(k.get("kind", "claim") == "claim" and (
+                    stories & {story_of.get(i) for i in k["fact_ids"]} and figures & numbers(k["text"], lang)
+                    # the same event can sit in two stories (retail sales from two outlets): two shared figures
+                    # that are not a day or a year are the same news told twice
+                    or len(_telling(figures & numbers(k["text"], lang))) >= 2) for k in kept):
                 dropped.append({**line, "why": "repeats an earlier line"})
                 continue
             opened |= stories

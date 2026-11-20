@@ -9,14 +9,15 @@ and every spoken fact links to the article it came from.
 |---|---|---|
 | Load the six feeds, skip articles without text or link | `src/articles.py` | code |
 | Attach German and Dutch Invezz translations to their English original | `src/cluster.py` | code |
-| Drop buy/sell pitches, group articles about the same event (TF-IDF), rank stories | `src/cluster.py` | code |
+| Drop buy/sell pitches, group articles about the same event (TF-IDF; a place or data series alone never joins two stories), rank stories (importance, number of outlets, freshness, a bonus for macro and currency news, a penalty for speculative headlines) | `src/cluster.py` | code |
 | Extract 3 to 6 facts per selected story, each with article ID and a verbatim quote | `src/facts.py` | small model |
 | Check every fact: quote must be in the article, value must be in the quote, mark conflicting sources | `src/facts.py` | code |
 | Write the script for one listener from the checked facts | `src/script.py` | small model |
-| Check every line in three stages: code (every number, superlative and source must be in the cited quotes; no relative dates, no repeats, no overlong sentences), a judge model (does the quote really say this?), then the length budget | `src/script.py` | code + small model |
+| Check every line in three stages: code (every number, superlative and source must be in the cited quotes; no relative dates, no repeats, no overlong sentences), a judge model (does the quote really say this?), then the length budget. A final pass drops repeats across the whole briefing; if it ends up under 80 % of the asked length, one more round writes lines from unused stories | `src/script.py` | code + small model |
 | Repair round: blocked lines go back to the writer once, with the reason, and are checked again from the start | `src/script.py` | small model |
 | Greeting and sign-off call the listener by name; short AI voice disclosure and "not investment advice" | `src/script.py` | code |
-| Speech from exactly the checked transcript, with word timestamps for the live highlight | `src/tts.py` | ElevenLabs v3 |
+| Speech from exactly the checked transcript, with word timestamps for the live highlight | `src/tts.py` | ElevenLabs v4 (voice Danielle) |
+| Listen back: Speech-to-Text on the finished MP3, every number of every claim must be heard in its time window (`audioCheck` in the briefing) | `src/audiocheck.py` | ElevenLabs Scribe |
 | Shared editions: listeners with the same language, length, depth and interest segment share one recorded body, only the greeting is personal | `src/editions.py` | code + small model |
 
 `prepare.py` runs once per news day, the app reuses its facts for every listener. Every model and voice call is
@@ -89,7 +90,7 @@ checked facts are read aloud, anything else is 404, and each quote is generated 
 and compares every number heard in a claim's time window with the numbers in its checked text.
 `check_audio(mp3_path, claims, lang)` returns `{"checked", "ok", "mismatches": [{"claim_id", "text", "expected", "heard", "spoken"}]}` (`spoken` = the recognised words).
 Names from the claims go in as keyterms, the numbers never do, so the recogniser is not told what it should hear.
-The ElevenLabs key needs the Speech to Text permission. **It is not wired into the pipeline**: nothing calls it when a briefing is built, and it has not been run on real audio (20.11.), only on simulated transcripts.
+The ElevenLabs key needs the Speech to Text permission. It runs after every briefing is recorded; the result is `audioCheck` in the briefing response, shown in the app. Spelled-out numbers ("zero point three", "dreiundachtzig", "anderhalf") are turned into digits before comparing. On the four demo briefings of 20.11. evening it heard 17 of 17 numbered claims right. If the check fails (no key permission, network), the briefing is still delivered with `audioCheck.error` set.
 
 ## Evaluation
 
