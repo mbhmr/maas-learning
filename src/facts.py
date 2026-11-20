@@ -53,7 +53,7 @@ def numbers(text, lang="en"):
     # "$7.5B", "¥15.4T", "€3bn", "430M" -> the same scale word as when it is spoken out
     for short, word in (("tn|t", "trillion"), ("bn|b", "billion"), ("mn|m", "million"), ("k", "thousand")):
         text = re.sub(rf"(?<=\d)\s?(?:{short})\b", f" {word}", text, flags=re.I)
-    if lang == "de":
+    if lang in ("de", "nl"):  # decimal comma: "6,5 %"
         text = re.sub(r"(?<=\d)\.(?=\d{3}\b)", "", text).replace(",", ".")
     else:
         text = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
