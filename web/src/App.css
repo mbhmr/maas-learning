@@ -203,6 +203,7 @@ mark { background: var(--mark); color: inherit; padding: 0 1px; border-radius: 2
 .listeners .label { margin-right: -8px; }
 .nr-articles { list-style: none; margin: 0; padding: 0 0 16px 40px; display: flex; flex-direction: column; gap: 10px; }
 .nr-articles li { display: flex; flex-direction: column; font-size: var(--t-ui); line-height: 1.45; }
+.nr-articles .nr-why { font: var(--t-label)/1.5 var(--f-ui); color: var(--muted); }
 .nr-articles small { color: var(--faint); font: var(--t-label)/1.4 var(--f-ui); }
 .nr-articles a { color: var(--ink); text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .nr-articles a:hover { color: var(--accent); }

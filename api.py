@@ -230,6 +230,15 @@ def _article_meta():
         return {}
 
 
+def _why(story, day):
+    """The parts of the story's rank score (src/cluster.py explain_rank), or None if they cannot be recomputed."""
+    from src.cluster import explain_rank
+    try:
+        return explain_rank(story, day)
+    except Exception:  # an old stories.json without the fields: the view simply shows no breakdown
+        return None
+
+
 @app.get("/api/stories/{day}")
 def stories_of_day(day: str):
     """All stories prepare.py grouped for this day, most important first. Metadata and links only, no article
@@ -264,5 +273,5 @@ def stories_of_day(day: str):
                     "languages": sorted({a["language"] for a in articles if a["language"]}),
                     "selected": bool(s.get("selected")), "hasFacts": s["id"] in fact_count,
                     "factCount": fact_count.get(s["id"], 0), "latest": (s.get("latest") or "")[:10] or None,
-                    "articles": articles})
+                    "why": _why(s, day), "articles": articles})
     return {"day": day, "stories": out}

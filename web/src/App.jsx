@@ -282,6 +282,8 @@ function Newsroom({ dayId, briefing }) {
             </button>
             {open === s.id && (
               <ul className="nr-articles">
+                {s.why?.parts?.length > 0 && (
+                  <li className="nr-why">Rank score {s.why.score}: {s.why.parts.map(p => `${p.label} ${p.points > 0 ? '+' : ''}${p.points}`).join(', ')}</li>)}
                 {s.articles.map(a => (
                   <li key={a.id}>
                     <a href={a.url} target="_blank" rel="noreferrer">{a.headline}</a>
