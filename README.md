@@ -90,7 +90,7 @@ checked facts are read aloud, anything else is 404, and each quote is generated 
 and compares every number heard in a claim's time window with the numbers in its checked text.
 `check_audio(mp3_path, claims, lang)` returns `{"checked", "ok", "mismatches": [{"claim_id", "text", "expected", "heard", "spoken"}]}` (`spoken` = the recognised words).
 Names from the claims go in as keyterms, the numbers never do, so the recogniser is not told what it should hear.
-The ElevenLabs key needs the Speech to Text permission. It runs after every briefing is recorded; the result is `audioCheck` in the briefing response, shown in the app. Spelled-out numbers ("zero point three", "dreiundachtzig", "anderhalf") are turned into digits before comparing. On the four demo briefings of 20.11. evening it heard 17 of 17 numbered claims right. If the check fails (no key permission, network), the briefing is still delivered with `audioCheck.error` set.
+The ElevenLabs key needs the Speech to Text permission. It runs after every briefing is recorded; the result is `audioCheck` in the briefing response, shown in the app. Spelled-out numbers ("zero point three", "one and a half", "dreiundachtzig", "anderhalf") are turned into digits before comparing; a missed figure is shown as a flag, never hidden. On the four demo briefings of 20.11. evening it heard every figure in 14 of 14 spoken lines with figures. If the check fails (no key permission, network), the briefing is still delivered with `audioCheck.error` set.
 
 ## Evaluation
 

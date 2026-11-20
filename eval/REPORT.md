@@ -23,6 +23,8 @@ Everything below was measured at 17:45, before commit 2377ab9 and the commits af
 - Translated round-ups are filtered.
 - Headlines that share only a weak name (a country, a data series) no longer merge (targets the mixed stories s5, s17, s18, s26).
 
+Ranking after the latest prepare run (21:52, new rank score): 6 of 8 importance-A events in the top 10 (was 3), precision 99.9 %, recall 59.0 %, 2 of 29 events mixed. Known limit: the speculation penalty also hits real news written as a question ("Why is there a nationwide ground stop today?", "Is Chase Bank down?") and "beat forecast"; a narrower rule moved Waller out of the top 10 in an offline check, so the measured rule stays. Story titles: a story that ran over several days now takes the headline of a quoted article when its own headline is more than a day older ("Nasdaq opens 1.5% lower" on the 16th stood above "gained 0.35%" from the 18th).
+
 Still open: pronoun-led quotes (Optimizely), a time with no date or event (world-news c8), and the split stories (recall).
 
 ## The numbers

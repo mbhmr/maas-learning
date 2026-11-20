@@ -36,7 +36,7 @@ NOTHING_ON = {
     "de": "Zu {} steht heute nichts in unseren Quellen.",
     "nl": "Over {} staat vandaag niets in onze bronnen.",
 }
-WORDS_PER_SECOND = {"en": 2.05, "de": 2.0, "nl": 1.7}  # measured 20.11. on Jessica/eleven_v3: en 1.9 to 2.3, de 2.06, nl 1.71
+WORDS_PER_SECOND = {"en": 2.45, "de": 2.25, "nl": 2.2}  # measured 20.11. 22:00 on Danielle/eleven_v4: en 2.41 and 2.49, de 2.24, nl 2.2
 LANG_NAME = {"en": "English", "de": "German", "nl": "Dutch"}
 # Filler a real host would never say. The model is told so; the code removes what slips through anyway.
 STOCK_PHRASES = re.compile(r"^\s*(next up|up next|here'?s a big one|big one coming|moving on|last but not least|"
@@ -368,7 +368,9 @@ UNNAMED_START = re.compile(r"^(it|its|they|their|he|she|his|her|this|these|that|
                            r"agency|group|stock|shares|deal|index|report|move|decision|disruption|incident|attack|"
                            r"probe)|er|sie|es|dies|der (konzern|ausfall|vorfall|angriff|bericht)|"
                            r"die (bank|störung|firma|aktie|behörde)|das (unternehmen|papier)|zij|hij|dit|deze|dat|"
-                           r"het (bedrijf|aandeel|incident)|de (bank|storing|aanval))\b", re.I)
+                           r"het (bedrijf|aandeel|incident)|de (bank|storing|aanval))\b"
+                           # "The Bank of England", "This week's CPI" do name their subject
+                           r"(?!\s+of\b|\s+week|\s+month|\s+year|\s+quarter|\s+morning)", re.I)
 TOP_UP_BELOW = 0.8  # a briefing under 80 % of its requested length gets one more round of stories
 
 
@@ -403,7 +405,8 @@ def top_up(profile, stories, facts, day, chosen, kept, reserved):
 
 def _telling(figures):
     """Figures that identify a piece of news: not a day of the month and not a year."""
-    return {n for n in figures if not (n.is_integer() and (1 <= n <= 31 or 1900 <= n <= 2099))}
+    return {n for n in figures if not (n.is_integer() and (1 <= n <= 31 or 1900 <= n <= 2099))
+            and n not in (1e3, 1e6, 1e9, 1e12)}  # "billion" alone is a scale, not a figure
 
 
 def dedupe(lines, facts, lang):

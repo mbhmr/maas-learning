@@ -168,7 +168,8 @@ def compound_to_digits(text, lang):
         if i + 1 < len(tokens) and tokens[i].lower() == "komma":
             digits = ""
             i += 1
-            while i < len(tokens) and tokens[i].isalpha() and (_compound(tokens[i], lang) or 99) < 10:
+            while i < len(tokens) and tokens[i].isalpha() and (_compound(tokens[i], lang) if _compound(tokens[i], lang)
+                                                               is not None else 99) < 10:  # "null" is a digit too
                 digits += str(_compound(tokens[i], lang))
                 i += 1
             value += "," + digits if digits else ""
@@ -180,6 +181,10 @@ def _heard_numbers(text, lang):
     if lang == "en":
         # "twenty-twenty-two" is a year said as two numbers
         text = re.sub(r"\b([a-z]+ty)-([a-z]+ty-[a-z]+)\b", r"\1 \2", text, flags=re.I)
+        text = re.sub(r"\ba (hundred|thousand)\b", r"one \1", text, flags=re.I)  # "a hundred and twenty"
+        text = re.sub(r"\b([a-z-]+|\d+) and a half\b",  # "one and a half percent" is 1.5
+                      lambda m: f"{(_word_value(m[1]) if not m[1].isdigit() else int(m[1]))}.5"
+                      if m[1].isdigit() or _word_value(m[1]) is not None else m[0], text, flags=re.I)
         text = spelled_to_digits(text)
     elif lang in _SMALL:
         text = compound_to_digits(text, lang)

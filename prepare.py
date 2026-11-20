@@ -11,6 +11,8 @@ import argparse
 import json
 import re
 import time
+from collections import Counter
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -48,6 +50,23 @@ def pick(stories):
         chosen += [s for s in stories if s.get("topic") == topic and s not in chosen][:PER_TOPIC]
     chosen += [s for s in stories if must_have(s) and s not in chosen]
     return sorted(chosen, key=lambda s: s["rank"])[:MAX_WITH_FACTS]
+
+
+def title_from_facts(story, facts, articles):
+    """A story that ran over several days speaks the figures of the articles its facts come from: a headline from
+    an older day ("Nasdaq opens 1.5% lower" on the 16th) would contradict them ("gained 0.35%" on the 18th). When
+    the title's article is more than a day older than the newest article a fact quotes, the title becomes the
+    headline of the English article the facts quote most (newest on a tie). Otherwise the title stays."""
+    own = set(story["article_ids"])
+    cited = Counter(src["article_id"] for f in facts if f["story_id"] == story["id"] for src in f["sources"]
+                    if src["article_id"] in own and articles[src["article_id"]]["feed"] not in ("invezz_de", "invezz_nl"))
+    titled = [i for i in own if articles[i]["headline"] == story["title"]]
+    if not cited or not titled:
+        return story["title"]
+    newest = max(articles[i]["date"] for i in cited)
+    if datetime.fromisoformat(newest) - datetime.fromisoformat(articles[titled[0]]["date"]) <= timedelta(days=1):
+        return story["title"]
+    return articles[max(cited, key=lambda i: (cited[i], articles[i]["date"]))]["headline"]
 
 
 def evidence_articles(story, articles):
@@ -117,6 +136,8 @@ def main():
         results = list(pool.map(work, chosen))
     facts = [f for fs, _ in results for f in fs]
     rejected = [r for _, rs in results for r in rs]
+    for s in stories:
+        s["title"] = title_from_facts(s, facts, articles)
     # stories and facts are written together at the end: story ids are renumbered on every run, so a briefing
     # made between the two writes would put the new titles on the old facts
     (out / "stories.json").write_text(json.dumps(stories, indent=2, ensure_ascii=False), encoding="utf-8")

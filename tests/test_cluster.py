@@ -327,3 +327,4 @@ def test_rank_score_puts_data_release_above_speculation():
     guess = {"importance": 4, "publishers": ["A", "B", "C"], "topic": "energy and commodities",
              "title": "Brent crude price analysis: will oil crash below $90?"}
     assert rank_score(data, 3, 1.0) > rank_score(guess, 6, 3.0)
+

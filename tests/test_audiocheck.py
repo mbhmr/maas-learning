@@ -14,3 +14,11 @@ def test_ordinal_digits_stay_one_number():
     from src.audiocheck import _heard_numbers
     assert _heard_numbers("on November 16th, and 4.0 percent", "en") >= {16.0, 4.0}
     assert 1.0 not in _heard_numbers("on November 16th", "en")
+
+
+def test_halves_hundreds_and_zero_after_comma():
+    from src.audiocheck import _heard_numbers
+    assert 1.5 in _heard_numbers("one and a half percent", "en")
+    assert 120 in _heard_numbers("a hundred and twenty flights", "en")
+    assert 4.5 in _heard_numbers("lasted four and a half hours", "en")
+    assert 1.05 in _heard_numbers("eins Komma null fünf Prozent", "de")

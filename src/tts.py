@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 
 from .llm import ENV, log_usage
 
-# "Jessica", a premade ElevenLabs voice: bright, warm, playful (Matthias, 20.11.: a woman's voice). Override with
-# ELEVENLABS_VOICE_ID.
+# "Danielle", a premade ElevenLabs voice (Matthias, 20.11.: a woman's voice, the same as in the pitch video).
+# Override with ELEVENLABS_VOICE_ID.
 DEFAULT_VOICE = "FVQMzxJGPUBtfz1Azdoy"  # Danielle, Matthias' pick for the pitch video (20.11.); before: Jessica cgSgspJ2msm6clMCkdW9
 # eleven_v3 knows three stability steps: 0.0 Creative, 0.5 Natural, 1.0 Robust. Creative sounded unstable,
 # Natural keeps the voice steady and still follows the audio tags.

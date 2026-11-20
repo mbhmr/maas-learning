@@ -642,3 +642,29 @@ def test_german_unnamed_start_is_dropped():
     from src.script import UNNAMED_START
     assert UNNAMED_START.match("Die Störung begann mit Instabilität")
     assert not UNNAMED_START.match("Die Flugsicherung meldete")
+
+
+def test_central_bank_names_are_named_starts():
+    from src.script import UNNAMED_START
+    for t in ["The Bank of England held its rate", "Die Bank of England", "This week's CPI rose 0.3%"]:
+        assert not UNNAMED_START.match(t)
+
+
+def test_scale_word_alone_does_not_make_a_repeat():
+    from src.script import dedupe
+    facts = [{"id": "a-f1", "story_id": "a"}, {"id": "b-f1", "story_id": "b"}]
+    lines = [{"kind": "claim", "text": "The ECB cut by 0.25 points and bought 40 billion euros.", "fact_ids": ["a-f1"]},
+             {"kind": "claim", "text": "Tesla shares slipped 0.25% after a 5 billion dollar sale.", "fact_ids": ["b-f1"]}]
+    kept, _ = dedupe(lines, facts, "en")
+    assert len(kept) == 2
+
+
+def test_title_follows_facts_when_headline_is_days_older():
+    from prepare import title_from_facts
+    arts = {"old": {"headline": "Nasdaq opens 1.5% lower", "date": "2026-11-16T14:42:00+00:00", "feed": "invezz"},
+            "new": {"headline": "Nasdaq rises", "date": "2026-11-18T14:44:00+00:00", "feed": "invezz"}}
+    story = {"id": "s6", "title": "Nasdaq opens 1.5% lower", "article_ids": ["old", "new"]}
+    facts = [{"story_id": "s6", "sources": [{"article_id": "new"}]}]
+    assert title_from_facts(story, facts, arts) == "Nasdaq rises"
+    facts = [{"story_id": "s6", "sources": [{"article_id": "old"}]}]
+    assert title_from_facts(story, facts, arts) == "Nasdaq opens 1.5% lower"

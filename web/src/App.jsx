@@ -222,14 +222,14 @@ function Receipt({ briefing, claims, stats, blockedOpen, onBlocked }) {
   const misses = ac?.mismatches?.length || 0
 
   const flow = p ? [
-    has('articlesRead') && { k: 'read', v: p.articlesRead, l: `${w(p.articlesRead, 'article')} read`,
-      t: `Every Newstex article of the news day was loaded${has('outlets') ? `, from ${n(p.outlets)} outlets` : ''}.` },
+    has('articlesRead') && { k: 'read', v: p.articlesRead, l: `${w(p.articlesRead, 'article')} grouped`,
+      t: `Newstex articles of the news window, after buy/sell pitches and round-ups were dropped${has('outlets') ? `, from ${n(p.outlets)} outlets` : ''}.` },
     has('stories') && { k: 'stories', v: p.stories, l: w(p.stories, 'story', 'stories'),
       t: 'Articles about the same event, across outlets and languages, are grouped into one story and ranked.' },
     has('storiesWithFacts') && { k: 'checked', v: p.storiesWithFacts, l: `${w(p.storiesWithFacts, 'story', 'stories')} fact-mined`,
       t: 'For the top stories, every fact is pulled out together with the verbatim quote it rests on.' },
     has('factsChecked') && { k: 'facts', v: p.factsChecked, l: `${w(p.factsChecked, 'fact')} verified`,
-      t: `Value, unit, date and entity of each fact are matched against its quote${has('sourcesRejected') ? `: ${n(p.sourcesRejected)} sources rejected` : ''}.` },
+      t: `Value, unit, date and entity of each fact are matched against its quote${has('sourcesRejected') ? `: ${n(p.sourcesRejected)} facts rejected` : ''}.` },
   ].filter(Boolean) : [
     { k: 'quotes', v: stats.quotes, l: `verified ${w(stats.quotes, 'quote')}`, t: 'The verbatim quotes behind this briefing, each checked against its article.' },
     { k: 'outlets', v: stats.outlets, l: w(stats.outlets, 'outlet'), t: 'The different publishers those quotes come from.' },
@@ -244,8 +244,8 @@ function Receipt({ briefing, claims, stats, blockedOpen, onBlocked }) {
       t: 'Any spoken sentence with a number must cite a quote that contains that number.' },
     stats.conflicts > 0 && { k: 'conflict', v: stats.conflicts, l: w(stats.conflicts, 'disagreement') + ' named', tone: 'warn',
       t: 'Where outlets report different figures, the briefing says so instead of picking one.' },
-    ac && ac.checked > 0 && { k: 'ear', v: `${ac.ok}/${ac.checked}`, l: 'figures re-heard by ear', tone: ac.ok === ac.checked ? 'ok' : 'warn',
-      t: `Speech recognition re-heard ${ac.ok} of ${ac.checked} figures correctly in the finished audio${misses ? `, ${misses} flagged` : ''}.` },
+    ac && ac.checked > 0 && { k: 'ear', v: `${ac.ok}/${ac.checked}`, l: `${ac.checked === 1 ? 'line' : 'lines'} with figures re-heard`, tone: ac.ok === ac.checked ? 'ok' : 'warn',
+      t: `Speech recognition listened to the finished audio: every figure was heard in ${ac.ok} of ${ac.checked} spoken lines with figures${misses ? `, ${misses} flagged` : ''}.` },
   ].filter(Boolean)
 
   const all = [...flow, ...seals]
