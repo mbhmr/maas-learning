@@ -144,12 +144,27 @@ def _compound(w, lang):
             lv = _compound(left, lang) if left else 1
             rv = _compound(right, lang)
             return None if lv is None or rv is None else lv * mult + rv
-    if und in w:
-        left, right = w.rsplit(und, 1)
-        lv, rv = _compound(left, lang), _compound(right, lang)
-        if lv is not None and rv is not None and lv < 10 and rv in tens.values():
-            return lv + rv
+    # "tweeennegentig": the glue "en" also sits inside "negentig", so every position is tried
+    for k in range(len(w)):
+        if w.startswith(und, k):
+            lv, rv = small.get(w[:k]), tens.get(w[k + len(und):])
+            if lv is not None and rv is not None and 0 < lv < 10:
+                return lv + rv
     return None
+
+
+# "vijftigdaagse", "twaalfmaandsdoel", "50-tägige": a number glued to a duration word
+_GLUED = re.compile(r"^(\w+?)(daagse|daags|dagse|dags|maands|jarige|jarig|jaars|weekse|tägige|tägig|monatige|jährige|jährig|"
+                    r"wöchige)", re.I)
+
+
+def _value(token, lang):
+    if not token.isalpha():
+        return None
+    v = _compound(token, lang)
+    if v is None and (m := _GLUED.match(token)):
+        v = _compound(m[1], lang)
+    return v
 
 
 def compound_to_digits(text, lang):
@@ -158,20 +173,28 @@ def compound_to_digits(text, lang):
     tokens = re.findall(r"\d+(?:[.,]\d+)*|\w+|\S", text)  # "4,0" stays one number
     out, i = [], 0
     while i < len(tokens):
-        v = _compound(tokens[i], lang) if tokens[i].isalpha() else None
+        v = _value(tokens[i], lang)
         if v is None:
             out.append(tokens[i])
             i += 1
             continue
-        value = str(v)
         i += 1
+        # "drieënzestigduizend vierhonderdvijfenzestig" is one number said as two words
+        if v >= 1000 and v % 1000 == 0 and i < len(tokens):
+            rest = _value(tokens[i], lang)
+            if rest is not None and rest < 1000:
+                v, i = v + rest, i + 1
+        value = str(v)
         if i + 1 < len(tokens) and tokens[i].lower() == "komma":
-            digits = ""
             i += 1
-            while i < len(tokens) and tokens[i].isalpha() and (_compound(tokens[i], lang) if _compound(tokens[i], lang)
-                                                               is not None else 99) < 10:  # "null" is a digit too
-                digits += str(_compound(tokens[i], lang))
-                i += 1
+            first = _value(tokens[i], lang)
+            if first is not None and first >= 10:  # "nul komma vijfendertig", "één komma vijftig"
+                digits, i = str(first), i + 1
+            else:
+                digits = ""
+                while i < len(tokens) and (d := _value(tokens[i], lang)) is not None and d < 10:  # "null" counts
+                    digits += str(d)
+                    i += 1
             value += "," + digits if digits else ""
         out.append(value)
     return " ".join(out)
@@ -182,10 +205,12 @@ def _heard_numbers(text, lang):
         # "twenty-twenty-two" is a year said as two numbers
         text = re.sub(r"\b([a-z]+ty)-([a-z]+ty-[a-z]+)\b", r"\1 \2", text, flags=re.I)
         text = re.sub(r"\ba (hundred|thousand)\b", r"one \1", text, flags=re.I)  # "a hundred and twenty"
-        text = re.sub(r"\b([a-z-]+|\d+) and a half\b",  # "one and a half percent" is 1.5
-                      lambda m: f"{(_word_value(m[1]) if not m[1].isdigit() else int(m[1]))}.5"
+        # "one and a half percent" is 1.5; the script parser reads "four and a half" as 4 and 0.5, so both stay
+        text = re.sub(r"\b([a-z-]+|\d+) and a half\b",
+                      lambda m: f"{m[0]} ({(_word_value(m[1]) if not m[1].isdigit() else int(m[1]))}.5)"
                       if m[1].isdigit() or _word_value(m[1]) is not None else m[0], text, flags=re.I)
         text = spelled_to_digits(text)
+        text = re.sub(r"\b(\d+) dollars? and (\d{1,2}) cents?\b", lambda m: f"{m[1]}.{int(m[2]):02d} dollars", text)
     elif lang in _SMALL:
         text = compound_to_digits(text, lang)
     text = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", text)  # "December 8th" means 8, the facts parser drops ordinals

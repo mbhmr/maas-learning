@@ -5,7 +5,7 @@ const PRESETS = [
   {
     key: 'trader', label: 'FX trader', flag: 'EN',
     profile: {
-      name: 'FX trader', language: 'en', seconds: 120, depth: 'dense, every figure with its period',
+      name: 'FX trader', language: 'en', seconds: 180, depth: 'dense, every figure with its period',
       description: 'A currency trader. Wants central banks, inflation and macro data, FX moves and the biggest ' +
         'market-moving company news. Numbers first, no background explanations.',
     },
@@ -13,7 +13,7 @@ const PRESETS = [
   {
     key: 'investor', label: 'Privatanleger', flag: 'DE',
     profile: {
-      name: 'Privatanleger', language: 'de', seconds: 75, depth: 'simple, explain terms in a few words',
+      name: 'Privatanleger', language: 'de', seconds: 120, depth: 'simple, explain terms in a few words',
       description: 'A private investor in Germany with little time. Wants the big stories of the day in plain ' +
         'language, what happened and why it matters, few numbers.',
     },
@@ -21,7 +21,7 @@ const PRESETS = [
   {
     key: 'world', label: 'World news', flag: 'EN',
     profile: {
-      name: 'World news', language: 'en', seconds: 90, depth: 'simple, explain terms in a few words',
+      name: 'World news', language: 'en', seconds: 150, depth: 'simple, explain terms in a few words',
       description: 'Someone who just wants to know what happened in the world: politics, world events, big ' +
         'business and tech stories, crime and culture. Not an investor, no market jargon, at most one number per story.',
     },
@@ -29,7 +29,7 @@ const PRESETS = [
   {
     key: 'belegger', label: 'Belegger', flag: 'NL',
     profile: {
-      name: 'Belegger', language: 'nl', seconds: 90, depth: 'medium',
+      name: 'Belegger', language: 'nl', seconds: 150, depth: 'medium',
       description: 'A Dutch retail investor who holds tech stocks and some crypto. Wants stocks, AI companies, ' +
         'crypto and the big macro numbers that move them, with the key figure per story and why it matters.',
     },

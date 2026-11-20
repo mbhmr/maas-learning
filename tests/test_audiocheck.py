@@ -22,3 +22,15 @@ def test_halves_hundreds_and_zero_after_comma():
     assert 120 in _heard_numbers("a hundred and twenty flights", "en")
     assert 4.5 in _heard_numbers("lasted four and a half hours", "en")
     assert 1.05 in _heard_numbers("eins Komma null fünf Prozent", "de")
+
+
+def test_dutch_long_numbers_and_glued_durations():
+    from src.audiocheck import _heard_numbers
+    h = _heard_numbers("op drieënzestigduizend vierhonderdvijfenzestig dollar en duizendzevenhonderdtweeënnegentig, "
+                       "de vijftigdaagse en de tweehonderddagse, nul komma vijfendertig procent", "nl")
+    assert {63465, 1792, 50, 200, 0.35} <= h
+
+
+def test_dollars_and_cents():
+    from src.audiocheck import _heard_numbers
+    assert 523.94 in _heard_numbers("to five hundred twenty-three dollars and ninety-four cents", "en")
