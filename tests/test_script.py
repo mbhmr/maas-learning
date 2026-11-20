@@ -564,3 +564,12 @@ def test_same_fact_with_a_shared_figure_is_a_repeat():
               "kind": "claim", "fact_ids": ["s1-f1"]}]
     kept, dropped = script.check_script(lines, [fact], "en")
     assert len(kept) == 1 and dropped[0]["why"] == "repeats an earlier line"
+
+
+def test_dedupe_over_the_whole_briefing():
+    f1, f2 = mkfact("s1-f1", "s1", "Anthropic priced its IPO at $83 per share."), mkfact("s1-f2", "s1", "The IPO was priced at $83.")
+    lines = [{"text": "Anthropic hat den Börsengang bei 83 Dollar gepreist!", "kind": "claim", "fact_ids": ["s1-f1"]},
+             {"text": "Anthropic hat den Börsengang auf 83 Dollar gepreist.", "kind": "claim", "fact_ids": ["s1-f2"]},
+             {"text": "Das zählt für dich.", "kind": "context", "fact_ids": ["s1-f1"]}]
+    kept, dropped = script.dedupe(lines, [f1, f2], "de")
+    assert [k["text"][-10:] for k in kept] == [lines[0]["text"][-10:], lines[2]["text"][-10:]] and len(dropped) == 1

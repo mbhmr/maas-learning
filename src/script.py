@@ -288,6 +288,8 @@ def write_script(profile, stories, facts):
             frame[line["role"]] = line["text"]
     kept = [line for line in judged_lines if not line.get("role")]
     kept, dropped, judged = repair(profile, chosen, facts, day, kept, dropped, judged)
+    kept, twice = dedupe(kept, facts, profile["language"])
+    dropped += twice
     kept, cut = fit_length(kept, profile, sum(len(t.split()) for t in frame.values()))
     kept, orphans = arrange(kept, facts)
     if missing:
@@ -358,6 +360,23 @@ def tidy(text):
     """No space before punctuation, no dash as a pause (it reads badly on screen and in speech)."""
     text = re.sub(r"\s*[—–]\s*(?=\D)", ", ", text or "")
     return re.sub(r"\s+([!?.,;:])", r"\1", text).strip()
+
+
+def dedupe(lines, facts, lang):
+    """The last word on repeats, over the whole briefing: rewrites from the repair round were only checked among
+    themselves. A claim is a repeat when an earlier claim of the same story shares one of its figures."""
+    story_of = {f["id"]: f["story_id"] for f in facts}
+    kept, dropped = [], []
+    for line in lines:
+        if line.get("kind", "claim") == "claim":
+            stories = {story_of.get(i) for i in line["fact_ids"]}
+            figures = numbers(line["text"], lang)
+            if figures and any(k.get("kind", "claim") == "claim" and stories & {story_of.get(i) for i in k["fact_ids"]}
+                               and figures & numbers(k["text"], lang) for k in kept):
+                dropped.append({**line, "why": "repeats an earlier line"})
+                continue
+        kept.append(line)
+    return kept, dropped
 
 
 def arrange(lines, facts):
