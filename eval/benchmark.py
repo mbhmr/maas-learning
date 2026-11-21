@@ -263,6 +263,7 @@ def run(paths, stories, with_fit=False):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # the Windows console is cp1252
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", default="2026-11-18")
     ap.add_argument("--folder", action="append", help="where the briefing.json files are (default: the day's "

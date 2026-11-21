@@ -555,6 +555,23 @@ def test_german_three_decimals_from_english_quote_become_german_decimals():
     assert "351.000" in kept[0]["text"]  # a German thousand stays
 
 
+def test_untranslated_dutch_lines_from_the_benchmark_are_caught():
+    for text in ("Nvidia forecast fourth-quarter revenue of 130 miljard dollar, plus or minus 3%.",
+                 "Fed Governor Christopher Waller called for a potentially larger 50 basispunten hike."):
+        assert script.ENGLISH_GIVEAWAY.search(text)
+    assert not script.ENGLISH_GIVEAWAY.search("Nvidia verwacht een omzet van 130 miljard dollar, plus of min 3 procent.")
+
+
+def test_german_quote_is_read_as_german():
+    # 21.11.: "351.000 Barrel" from Invezz German was read as 351, so the right "351.000" became "351,000" (= 351)
+    fact = mkfact(quote="die Destillatbestände um 351.000 Barrel.")
+    fact["sources"][0]["language"] = "de"
+    kept, _ = run("Die Destillatbestände stiegen um 351.000 Barrel.", facts=[fact], lang="de")
+    assert len(kept) == 1 and "351.000" in kept[0]["text"]
+    kept, dropped = run("Distillate stocks rose by 351 barrels.", facts=[fact])
+    assert not kept and "351" in dropped[0]["why"]
+
+
 def test_weekday_is_a_relative_date_but_am_morgen_is_fine():
     fact = mkfact(quote="Producer prices rose 0.3% in October.")
     _, dropped = run("Producer prices rose 0.3 percent on Tuesday.", facts=[fact])

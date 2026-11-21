@@ -541,7 +541,7 @@ def allowed_numbers(fact, text=""):
     nums = set()
     dated = date_numbers(text)
     for s in fact["sources"]:
-        nums |= numbers(s["quote"])
+        nums |= numbers(s["quote"], s.get("language", "en"))  # "351.000 Barrel" in a German quote is 351000
         y, _, d = s["date"][:10].split("-")
         nums |= {float(y), float(d)} & dated
     return nums
@@ -610,7 +610,7 @@ ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained
                               # function words in lower case only: "After-Hours-Handel", "This Is Money" are German
                               # usage or names; "these" is Dutch for thesis, "of" Dutch for or
                               r"|(?-i:\b(with|could|their|because|which|would|about|from|those|that|you|your|"
-                              r"as much as)\b)"
+                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate)\b)"
                               r"|\bon \d{1,2} [a-z]", re.I)
 
 
