@@ -108,6 +108,18 @@ Schnittstelle zwischen Pipeline und Oberfläche: die API in `api.py` (`POST /api
 - **Prüfung in drei Stufen** (20.11. 16:45, nach dem Gegenlesen): (1) Code: jede Zahl, jeder Superlativ aus dem Zitat, jede Zeile mit Quelle; (2) ein zweites Modell legt jede Zeile neben ihre Zitate und streicht Richtung, Ursache, Geldtipps und "heute/gestern", die die Quelle nicht hergibt; (3) Länge per Code.
 - **Zusammenführen** (20.11. 16:50): Das Modell schlägt Gruppen vor, oft eine Riesengruppe mit 200 Storys. Der Code teilt jede Gruppe selbst: Eine Story kommt nur zu einer anderen, wenn beide Titel denselben seltenen Eigennamen tragen ("Huang" ja; "Trump", "Nvidia" zu häufig; Vornamen wie "Donald" nie). Die Obergrenze für Gruppen (16:30) ist wieder raus, weil sie die richtigen Treffer mit verworfen hat.
 
+**Entscheidungen 21.11. Nacht (Pipeline: Kosten, Skalierung, Benchmark)**, Messwerte im README, "What makes it scale and learn", und in `eval/REPORT.md`:
+- **Vorab erzeugen:** `pregenerate.py <Tag>` schreibt und prüft nachts alle 324 gemeinsamen Ausgaben (3 Sprachen x 6 Längen x 3 Tiefen x 6 Interessen), im OpenAI-Flex-Tarif (halber Preis, langsamer). Grund: morgens wartet kein Hörer auf das Schreibmodell, und die Stimme zahlt erst, wer abspielt.
+- **Eigener Jury-Benchmark** `eval/benchmark.py`: prüft jede Ausgabe gegen die Jury-Kriterien. Er hat echte Fehler gefunden, die behoben sind: englische Dezimalpunkte in deutschen Zeilen (6.077 Millionen ETH, 1000-fach falsch), deutsche Zitate als Englisch gelesen (351.000 Barrel als 351), englische Sätze in niederländischen Zeilen, eine leere 30-Sekunden-Ausgabe, zu kurze Ausgaben, alle Huang-Zeilen von der Personenregel blockiert. Regel: keine Prüfung lockern, nichts auf den Schlüssel trimmen.
+- **Lernschleife bleibt aus** (`LESSONS=0`): im A/B-Test half sie nur am Tag, aus dem sie gelernt hat, nicht an einem neuen Tag. Erst an, wenn sie auf neuen Tagen hilft.
+- **`with_leads` (Topstory für alle) wieder raus:** war auf den Benchmark zugeschnitten und beruhte auf einer falschen Diagnose.
+- **`prepare.py` ohne Datum** nimmt den letzten vollen Tag (mindestens 10 % des stärksten Tages), nicht den letzten mit irgendeinem Artikel (19.11. hatte nur 15).
+- **Eigene Daten:** `prepare.py --data <Ordner>`, beliebige Dateinamen; Übersetzungen werden über den Verlag im Datensatz verknüpft.
+- **Fakten ohne Zahl sind erlaubt** (Rücktritt, Aussage, Hack): sonst hatte die Topstory des 18.11. (Huang) nichts Sprechbares.
+- **Gleiche Veröffentlichung = eine Story** (`merge_same_release`): nur Makro-Daten, mindestens zwei gleiche Kennzahlen und die Hälfte der kleineren Story. Am 18.11. genau ein Fall: US-Einzelhandel (Zacks, ActionForex).
+- **18.11. von Hand nachgezogen (21.11. ~01:30 bis 02:00):** Einzelhandel zusammengeführt, das £-Zitat und das Huang-Zitat korrigiert, Huang-Fakt s1-f6 ergänzt. `facts.json` behält absichtlich seine alte Änderungszeit, sonst schreibt die API alle geprüften Demo-Briefings neu. Nach so einer Änderung die API neu starten. Sicherung: `output/_papierkorb/2026-11-18-vor-remerge/`.
+- **Demo-Presets:** alle vier bestehen jede Benchmark-Prüfung (100 %), Stand 21.11. 02:00.
+
 | Wann (Ortszeit) | Ergebnis |
 |---|---|
 | **Fr, erste 20 Minuten** | Rollen und Datenstruktur kurz abstimmen. Eine Person prüft BuilderBase/Abgabe und Zugänge, eine die Feeds und Lizenzfragen, eine das bestehende oder neue private Repo. |

@@ -114,9 +114,11 @@ def quote_figures(sources):
 
 
 def year_dates(text, years):
-    """A source's year said as part of a date ("October 2026", "18 November 2026") is a date, not a figure."""
-    return re.sub(r"\b(" + "|".join(MONTHS) + r")\s+(\d{4})\b",
-                  lambda m: m.group(1) if float(m.group(2)) in years else m.group(0), text, flags=re.I)
+    """A source's year said as part of a date ("October 2026", "18 November 2026", "November 18, 2026", "Q3 2026")
+    is a date, not a figure."""
+    return re.sub(r"\b(" + "|".join(MONTHS) + r"|Q[1-4]|H[12])(\s+\d{1,2}(?:st|nd|rd|th)?,)?\s+(\d{4})\b",
+                  lambda m: m.group(1) + (m.group(2) or "") if float(m.group(3)) in years else m.group(0),
+                  text, flags=re.I)
 
 
 def norm(text):

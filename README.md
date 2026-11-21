@@ -50,7 +50,7 @@ pip install -r requirements.txt
 
 ```
 python one_story.py                       # first end-to-end test: US producer prices, two sources
-python prepare.py                         # prepare 13 to 18 Nov once (picks up to 120 stories, macro and multi-outlet stories always; last run 20 Nov evening: 94 small-model calls, about 0.18 USD, 93 stories with facts)
+python prepare.py --start 2026-11-13 --end 2026-11-18   # the demo day: prepare 13 to 18 Nov once (picks up to 120 stories, macro and multi-outlet stories always; last run 20 Nov evening: 94 small-model calls, about 0.18 USD, 93 stories with facts)
 python prepare.py --stories-only          # grouping only, free
 uvicorn api:app --port 8000               # API for the React player
 cd web && npm install && npm run dev      # the player, http://localhost:5173 (proxies /api to port 8000)
@@ -64,6 +64,37 @@ sourced sentence; the quotes of the selected sentence beside it, on phones as a 
 section "How this briefing was made" with the pipeline numbers, the stories, the blocked lines and the optional chime)
 and **Today's ranking** (every story of the day in rank order with a one-line reason, the stories this listener hears
 marked, and each story's articles one click away; a story's optional `reason` field replaces the computed line).
+
+## Use your own data
+
+One command turns any Newstex export into a news day the player can open:
+
+```
+python prepare.py --data path/to/your/newstex
+```
+
+- **Folder:** any folder with Newstex `.jsonl` files, one article per line, any file names (`export-zacks.jsonl`, `day1.jsonl` ...). Fields used: `$id`, `headline`, `date`, `language`, `text_content`, `permalink`, `publication.name`, `source` (author), `excerpt`, `provider_categories`. Articles without text or link are skipped.
+- **Window:** by default the last 6 days of the data, ending on the newest full day (a day with at least 10 % of the busiest day's articles, so a few stragglers of the next morning do not become the news day); choose it with `--start 2026-11-13 --end 2026-11-18`.
+- **Output:** `output/<end>/stories.json` and `facts.json`; the API and the player list that day at once. `--out somewhere` writes elsewhere (for a trial run the player should not see).
+- **Checked end to end (21 Nov):** the 190 articles of 17 Nov copied into a new folder under other file names, `prepare.py --data` on it: 66 stories with facts, 273 checked facts, about 0.1 USD; one trader briefing from it passed every check of `eval/benchmark.py`. That run found and fixed one trap: German and Dutch Invezz translations were linked by file name, now by the publisher in the record.
+
+## Several days in one briefing
+
+A profile may carry `days`: `1` = only stories whose newest article is from the last day, `3` = the last three days, unset = the whole prepared window (6 days). With more than one day the writer is told it is a review of those days and every claim says its date. On 18 Nov: 38 stories with facts for `days: 1`, 72 for `3`, 82 for the whole week (`src/script.py`, `in_span`).
+
+## What makes it scale and learn
+
+Measured on 21 Nov, numbers from our own runs; reports in `output/` (local, not in Git).
+
+| What | How | Measured |
+|---|---|---|
+| **The whole day is written before anyone wakes up** | `pregenerate.py <day>` writes and checks all 324 shared editions (3 languages x 6 lengths x 3 depths x 6 interest segments), 8 in parallel. A listener then needs one cached segment call, no writer model; the voice is paid only when the first listener of an edition presses play | all 324 in **11.2 min** for **3.12 USD** (0.96 ct per edition, run fix7), 0 failures, 0 empty editions, **0 lines without a source**. Voice for all 324 if every one were heard: 597,458 characters, about 48 USD at 0.08 USD per 1,000 characters |
+| **Half price at night** | The night run uses OpenAI's flex tier (slower, half price; nobody is waiting). A busy refusal falls back to the normal price (not yet seen live). Only the gpt-5 calls (writer, repair) take flex; gpt-4.1-mini refuses it | per writer call **0.26 ct** on flex vs **0.49 ct** at normal price (-46 %). Per edition 0.85 vs 1.43 ct (-41 %), but the two 18-edition runs made a different number of calls (109 vs 123), so the per-call figure is the clean one; flex took 60 s vs 49 s |
+| **Honest cost log** | Every call logs cached input tokens, reasoning tokens and the tier, and the price counts them (`src/llm.py`, `cost_usd`) | story selection gets cache hits from the provider (110k cached tokens in an 18-edition run), writer and judge prompts are too short for it. The cache discount shares are from the price list, not checked against an invoice |
+| **Our own jury benchmark** | `eval/benchmark.py` scores every briefing on what the jury checks: figures with scale in the quotes (each quote read in its own language), quotes word for word in the article, dates, sources, disclosure, no advice, language, length, audio check, no repeated news, wording, must-hear story. It uses the pipeline's number reader but none of its allowances | the four demo presets pass every check (100 %). All 324 editions (fix7): figures, language, wording, dates, sources, no repeats 100 %, length 92.9 %, must-hear 95.1 %; why not all 100 % in [`eval/REPORT.md`](eval/REPORT.md#jury-benchmark-21-nov). It found real faults that are now fixed in the pipeline: English decimal points in German and Dutch lines ("6.077 Millionen ETH", 1000x wrong), German quotes read as English ("351.000 Barrel" as 351), English sentences in Dutch and German lines, an empty 30 s edition, too short editions, every line on the day's lead story blocked by the person check, a quote with a control character instead of "£", the October retail sales as two stories, "in October on 13 November", "annual inflation" for the PPI rate |
+| **The checker teaches the writer (experimental, off)** | `src/lessons.py` counts why lines were blocked over earlier briefings and adds the five most frequent reasons, each with two real blocked lines, to the end of the writer prompt. `eval/ab_lessons.py` tests it: same stories, same checks, with and without | 160 runs: on the day it learned from, blocked first-draft lines **28.3 % -> 22.9 %** (paired difference -5.4 points, 95 % interval -10.2 to -0.7). On an unseen day **no effect** (-0.9, interval -5.7 to +3.9), and lines carried slightly fewer figures. So it stays switched off (`LESSONS=1` turns it on) until it helps on new days too |
+
+What still runs in the cloud at listen time: nothing for a listener whose edition exists (segment call cached, body and greeting audio cached); for a new edition the writer and checker models and the voice. Nothing runs on the listener's device.
 
 ## API (for the player)
 

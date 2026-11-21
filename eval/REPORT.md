@@ -9,6 +9,59 @@ Measured on 20 Nov 2026, 17:45, with `output/2026-11-18/stories.json` (17:19), `
 
 The key (`eval/answer_key.json`) was built by hand, not by a model: headlines, leads and article text of 13 to 18 Nov were read, and every event lists all its articles across outlets and languages (German and Dutch Invezz versions checked by headline). It holds 29 events with 144 articles (18 events with two or more articles, 11 single-article events that must stay apart), 46 facts and 51 spoken claims, each checked against the article text. Articles where reasonable editors could disagree are marked `ambiguous` and left out of the scoring. No article text is stored: ids, headlines, numbers and at most the first eight words of a quote.
 
+## Jury benchmark (21 Nov)
+
+`eval/benchmark.py` scores every finished briefing on what the Sourcera jury checks, offline and free:
+
+```
+.venv/Scripts/python eval/benchmark.py                                                 # the demo presets of 18 Nov
+.venv/Scripts/python eval/benchmark.py --folder output/pregen/2026-11-18-flex-fix7     # all 324 shared editions
+```
+
+What each check means is in the file's docstring. The rule while fixing: never loosen a check to reach 100 %, fix the pipeline. Where the benchmark itself was wrong (a false alarm), it was corrected and the case is listed below. Two fresh reviews read the benchmark without knowing the plan; the second one found five ways it passed things it should fail, all closed (an invented article id skipped the quote check, figures in context lines were not checked, a merged story hid repeats, small whole figures were ignored, "producer" in an earlier clause excused a bare "annual inflation").
+
+**The four demo presets** (fx-trader, privatanleger, belegger, world-news; 18 Nov, with audio): **every check at 100 %**, audio check included (the speech recogniser heard every figure as written).
+
+**All 324 shared editions of 18 Nov**, each run scored with today's benchmark:
+
+| Run (night of 21 Nov) | figures | language | length | must_hear | wording | verbatim | others |
+|---|---|---|---|---|---|---|---|
+| run 1, before the fixes | 88.9 % | 99.1 % | 80.6 % | 63.9 % | 94.8 % | 74.7 % | sourced 99.7 % (one empty edition) |
+| fix3 | 92.9 % | 99.4 % | 90.4 % | 65.4 % | 94.4 % | 77.8 % | 100 % |
+| fix4 (quotes read in their own language) | 100 % | 99.4 % | 89.8 % | 66.0 % | 92.0 % | 76.8 % | 100 % |
+| **fix7 (all fixes)** | **100 %** | **100 %** | **92.9 %** | **95.1 %** | **100 %** | 38.0 % (see below) | **100 %** |
+
+"Others" are sourced, dates, disclosure, no_advice and no_repeats. Audio is not applicable to text-only editions. fix7 wrote all 324 in 674 s for 3.12 USD, 0 failures, 0 empty editions, 0 lines without a source.
+
+**What the benchmark found in the pipeline, all fixed in code:**
+- English decimal points in German and Dutch lines: "6.077 Millionen ETH" is 6,077 million to a German ear, 1000x wrong. The old checker let it through on purpose.
+- German and Dutch quotes read as English: "351.000 Barrel" became 351, and the line was "corrected" to 351,000.
+- English sentences in Dutch and German lines.
+- The writer rule kept "indices" in English, so 33 editions said "US Producer Price Index".
+- One empty 30 s edition, and too short editions.
+- The top story of the day had nothing to speak: facts needed a number, so Huang's statement was never a fact. Every line about it was rightly blocked by the content check.
+- Two quotes not word for word in their article: a control character instead of "£", and a quotation mark the model added.
+- The October retail sales as two stories (Zacks and ActionForex).
+- "rose 0.3 percent in October on 13 November".
+- "annual inflation" for the PPI rate.
+
+**Where the benchmark was wrong and was corrected** (false alarms, each checked by hand):
+- Date ranges ("8 en 9 december"), and "a December 25 basis points hike" read as a date.
+- Dutch "verkopen", and words shared by two languages (in, is, die, je).
+- A year inside a date ("November 18, 2026", "Q3 2026").
+- "Take-Two" read as the figure 2.
+- "wholesale inflation", which does name the PPI.
+- Shared editions were measured without the greeting the player puts in front of them.
+
+**Why fix7 is not 100 % everywhere, and why that is honest:**
+- **verbatim 38 %:** all 201 failures are one quote. It is Huang's statement with the leading quotation mark the model added, fixed in `facts.json` and in `src/facts.py` (`exact_quote`) after fix7 had loaded the facts. All 362 quotes of 18 Nov now stand word for word in their article, and the demo presets pass. A new run would show it; we did not pay for a fifth full run.
+- **length 92.9 %:** 23 editions are more than 25 % short, mostly "world" and "simple" ones. After the checker there is not enough checked material for them; we keep a short checked briefing rather than fill it with unchecked lines. Without audio, length is words divided by the pipeline's own measured speaking rate, so it checks the word budget, not the clock.
+- **must_hear 95.1 %:** a soft proxy (the highest-ranked must-hear story of the listener's topics). 10 of the 16 misses are the merged retail story, now ranked #3, in editions that picked other macro news; 4 are Huang.
+- **Known gap:** `no_repeats` does not flag one shared figure across two different stories. The PPI 6.5 % also appears in a gold story. One figure alone across stories is too often chance (0.3 % for CPI and PPI).
+- **Shared building blocks:** the benchmark uses the pipeline's number reader, must-hear definition and greeting text, but none of its allowances. `verbatim`, `dates` and `language` are independent of the pipeline.
+
+**Changed in place on 21 Nov, about 01:30 to 02:00:** `output/2026-11-18/stories.json` and `facts.json`. This covers the retail merge (`prepare.py --remerge`), the "£" quote, the Huang fact `s1-f6` and its quote. Backups are in `output/_papierkorb/2026-11-18-vor-remerge/`. `facts.json` keeps its old modification time on purpose, because the API keys its briefing cache by it; restart the API so its pipeline numbers re-read the file.
+
 ## Status after the fixes (20 Nov evening)
 
 Re-measured merging at 20:40 on the new prepare run (with the safer merge rule): pairwise precision **99.9 %** (was 97.7 %), recall **59.6 %** (was 52.4 %), events mixed with another key event **2 of 29** (was 4 stories), multi-article events split 7 of 18 (was 10). Importance-A events in the top 10 fell to 3 of 8 (was 5): ranking is the open weak spot. Facts and spoken claims were not re-judged by hand.
