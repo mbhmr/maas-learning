@@ -125,6 +125,16 @@ def extract_facts(story, articles):
     return verify_facts(story, raw, articles)
 
 
+def exact_quote(quote, text):
+    """The quote as the article writes it, when the model only added quotation marks around it: the matching above
+    ignores punctuation, the listener's source card shows the quote, and it must stand word for word in the
+    article (18 Nov: Huang's statement got a leading '"' the article does not have; found by eval/benchmark.py)."""
+    for candidate in (quote, quote.strip(), quote.strip().strip('"“”„\'‘’').strip()):
+        if candidate and candidate in text:
+            return candidate
+    return quote
+
+
 def verify_facts(story, raw_facts, articles):
     verified, rejected = [], []
     for n, f in enumerate(raw_facts):
@@ -141,6 +151,7 @@ def verify_facts(story, raw_facts, articles):
             if norm(s["quote"]) not in norm(art["text"]):
                 rejected.append({"fact": f["claim"], "why": f"quote not found in {art['publisher']}"})
                 continue
+            s = {**s, "quote": exact_quote(s["quote"], art["text"])}
             if not numbers(s["value_in_source"], lang) <= numbers(s["quote"], lang):
                 rejected.append({"fact": f["claim"], "why": f"value {s['value_in_source']} not in quote"})
                 continue

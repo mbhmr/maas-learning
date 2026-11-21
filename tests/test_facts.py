@@ -301,3 +301,13 @@ def test_news_without_a_number_is_a_fact_too():
     f["sources"][0]["quote"] = "Jensen Huang will return as Nvidia CEO."  # not in the article
     ok, _ = verify_facts({"id": "s1", "title": "Huang", "article_ids": ["h1"]}, [f], arts)
     assert ok == []
+
+
+def test_quote_keeps_the_articles_own_wording():
+    arts = {"h1": {"id": "h1", "publisher": "Invezz", "url": "https://x/h1", "date": "2026-11-17T17:11:00+00:00",
+                   "text": 'He wrote. If the Board decides so, I would be honoured to return as CEO," Huang said.'}}
+    f = {"metric": "huang_return", "claim": "Huang said he would be honoured to return as CEO.", "value": "",
+         "unit": "", "period": "17 November 2026", "importance": 5,
+         "sources": [src("h1", '"If the Board decides so, I would be honoured to return as CEO," Huang said.', "")]}
+    ok, _ = verify_facts({"id": "s1", "title": "Huang", "article_ids": ["h1"]}, [f], arts)
+    assert ok[0]["sources"][0]["quote"] == 'If the Board decides so, I would be honoured to return as CEO," Huang said.'
