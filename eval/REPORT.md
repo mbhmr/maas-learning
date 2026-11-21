@@ -7,7 +7,7 @@ Measured on 20 Nov 2026, 17:45, with `output/2026-11-18/stories.json` (17:19), `
 .venv/Scripts/python eval/evaluate.py --json     # everything, machine-readable
 ```
 
-The key (`eval/answer_key.json`) was built by hand, not by a model: headlines, leads and article text of 13 to 18 Nov were read, and every event lists all its articles across outlets and languages (German and Dutch Invezz versions checked by headline). It holds 29 events with 144 articles (18 events with two or more articles, 11 single-article events that must stay apart), 46 facts and 51 spoken claims, each checked against the article text. Articles where reasonable editors could disagree are marked `ambiguous` and left out of the scoring. No article text is stored: ids, headlines, numbers and at most the first eight words of a quote.
+The key (`eval/answer_key.json`) was built by hand, not by a model: headlines, leads and article text of 13 to 18 Nov were read, and every event lists all its articles across outlets and languages (German and Dutch Invezz versions checked by headline). It holds 29 events with 144 articles (18 events with two or more articles, 11 single-article events that must stay apart), 46 facts and 51 spoken claims (the key now holds 51: 42 correct, 8 wrong, 1 unsupported; the table below is the earlier pass over 48 of them), each checked against the article text. Articles where reasonable editors could disagree are marked `ambiguous` and left out of the scoring. No article text is stored: ids, headlines, numbers and at most the first eight words of a quote.
 
 ## Jury benchmark (21 Nov)
 
@@ -150,7 +150,7 @@ All 8 passed the checker as it was at measurement time (17:45), because every nu
 
 1. "We hand-checked 46 extracted facts and 48 spoken claims against the source articles: not one number was wrong, and 83 % of spoken claims were right in every detail."
 2. "Every error we found was context, not a figure: a stale IPO range, 'after hours' instead of regular trading, a missing country or speaker. So our next checker tests time, entity and attribution, not just numbers."
-3. "On 144 hand-labelled articles our story grouping is 98 % precise but finds only half of the duplicates: we would rather tell a story twice than mix two stories into one."
+3. "On 144 hand-labelled articles our story grouping is 99.9 % precise but finds only half of the duplicates: we would rather tell a story twice than mix two stories into one."
 
 ## Limits
 
