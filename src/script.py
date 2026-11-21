@@ -103,11 +103,15 @@ NUMBER_STYLE = {
     "de": 'Numbers the German way: decimal comma ("0,3 Prozent"), "Milliarden" for billion, "Billionen" for '
           'trillion, currency after the number ("10,5 Milliarden Dollar"). Every word is German: translate the '
           'verbs and nouns of the English quotes ("rose" is "stieg", "producer prices" are "Erzeugerpreise"), '
-          'only names of companies, people and indices stay. A change is "um" ("stieg um 0,3 Prozent"), a level '
+          'only names of companies, people and stock indices (S&P 500, Nasdaq, DAX) stay; economic measures are '
+          'German ("Producer Price Index" is "Erzeugerpreisindex", "food and energy" is "Nahrungsmittel und '
+          'Energie"). A change is "um" ("stieg um 0,3 Prozent"), a level '
           'is "auf" ("stieg auf 6,5 Prozent"), exactly as the quote has it. Always "du", never "Sie".',
     "nl": 'Numbers the Dutch way: decimal comma ("0,3 procent"), "miljard" for billion, "biljoen" for '
           'trillion, currency after the number ("10,5 miljard dollar"). Every word is Dutch: translate the verbs '
-          'and nouns of the English quotes ("rose" is "steeg"), only names of companies, people and indices stay. '
+          'and nouns of the English quotes ("rose" is "steeg"), only names of companies, people and stock indices '
+          '(S&P 500, Nasdaq, AEX) stay; economic measures are Dutch ("Producer Price Index" is '
+          '"producentenprijsindex", "food, energy and trade services" is "voeding, energie en handelsdiensten"). '
           'A change is "met" ("steeg met 0,3 procent"), a level is "naar" ("steeg naar 6,5 procent"), exactly as '
           'the quote has it. Always "je", never "u".',
 }
@@ -614,7 +618,10 @@ ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained
                               # function words in lower case only: "After-Hours-Handel", "This Is Money" are German
                               # usage or names; "these" is Dutch for thesis, "of" Dutch for or
                               r"|(?-i:\b(with|could|their|because|which|would|about|from|those|that|you|your|"
-                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate|has|its|priced|offering)\b)"
+                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate|has|its|priced|offering|food)\b)"
+                              # English index names kept in a Dutch line ("Producer Price Index", "zonder food,
+                              # energy en trade services", belegger preset 21.11.)
+                              r"|\b(producer price|trade services|consumer price)\b"
                               r"|\bon \d{1,2} [a-z]", re.I)
 
 

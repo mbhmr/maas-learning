@@ -135,6 +135,12 @@ def check(briefing, stories=None, articles=None):
     """{check: (passed True/False/None, [problems])} for one briefing dict."""
     lang = briefing["profile"]["language"]
     claims = [c for c in briefing["claims"] if c.get("text")]
+    if briefing.get("segment") and not any(c["kind"] == "host" for c in claims):
+        # a shared edition is stored without its greeting: the player puts the listener's greeting in front (up to
+        # 14 words, a quarter of a 30 s edition), so it is measured with the greeting a listener hears
+        from src.editions import greeting_text
+        claims = [{"text": greeting_text(briefing["profile"], briefing["segment"]), "kind": "host",
+                   "sources": []}] + claims
     news = [c for c in claims if c["kind"] in NEWS]
     res = {}
 
