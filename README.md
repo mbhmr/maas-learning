@@ -8,6 +8,15 @@ and every spoken fact links to the article it came from.
 - **What it does:** one news day from six Newstex feeds becomes a personal audio briefing for any listener (language, length, depth, interests), in English, German or Dutch.
 - **Why you can trust it:** every spoken sentence with a figure links to the verbatim quote it rests on. A checker blocks any line whose number, name, time or claim is not in its quote, and after recording, speech recognition listens to the audio and checks every figure again.
 - **Measured:** against an answer key we built by hand (see `eval/REPORT.md`): no wrong number in 46 facts, and 6 of 8 must-hear events in the top 10 of the ranking (the rank score was tuned on this same key, so read it as a fit, not a blind test).
+- **Run it with your own keys and data, in four steps:**
+  1. **Install** (Python 3.12+, Node 20+): see Setup below.
+  2. **Keys:** copy `.env.example` to `.env` in the repo root and fill in two lines:
+     - `OPENAI_API_KEY=` for writing and checking.
+     - `ELEVENLABS_API_KEY=` for the voice and the audio check; it needs the Text to Speech and Speech to Text permissions.
+
+     Leave the other lines empty to use the defaults (gpt-4.1-mini, voice Danielle on eleven_v4).
+  3. **Data:** put your Newstex `.jsonl` export in any folder, then run `python prepare.py --data <that folder>`. This groups, ranks and fact-checks the last 6 days of the data, about 0.1 to 0.2 USD per run. See "Use your own data".
+  4. **Start:** run `uvicorn api:app --port 8000`, then `cd web && npm install && npm run dev`, and open http://localhost:5173. Pick the day, describe a listener and press create. The tab **Today's ranking** shows how every story was ranked and why.
 - **Demo outputs are not in this repo:** the Newstex licence forbids republishing article text, so `data/` and `output/` stay local. The pitch video shows the app; to run it yourself, follow Setup and Run below with the event dataset.
 
 ## How it works
