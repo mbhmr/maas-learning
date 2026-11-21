@@ -347,15 +347,20 @@ def _release_figures(facts):
     return {(_PERIOD.sub("", f["metric"]), frozenset(numbers(f["value"]))) for f in facts}
 
 
+RELEASE_TOPIC = "central banks and macro"
+
+
 def merge_same_release(stories, facts, end_day):
     """Two macro stories of the same day that share two or more figures of the same release are one story.
 
     The headline merge needs a shared rare name, and "Retail Sales Increased in Line with Expectations" (Zacks) and
     "US Retail Sales Slow to 0.2%" (ActionForex) share none, so on 18 Nov the October retail sales were two stories
     with the same 0.2 and 0.6 percent (found by the video review, 21.11.). This runs after the facts, so it compares
-    checked figures, not words. Same topic is required: "Dollar Firms After Retail Sales" (currencies) quotes the
-    same figures but is a story about the dollar. Ids stay (facts and saved briefings point at them); the joining
-    story's facts move to the bigger story, then the stories are re-scored and re-ranked. Returns the merges.
+    checked figures, not words. Only data releases ("central banks and macro"): two currency stories that both quote
+    the retail figures are still about the dollar. And the shared figures must be at least half of the smaller
+    story's figures, so a Fed speech that mentions the jobless rate does not swallow the jobs report. Ids stay
+    (facts and saved briefings point at them); the lower-ranked story's facts move to the higher-ranked one, then
+    the stories are re-scored and re-ranked. Returns the merges.
     """
     by_story = {}
     for f in facts:
@@ -365,12 +370,13 @@ def merge_same_release(stories, facts, end_day):
     gone, merges = set(), []
     for i, a in enumerate(stories):
         for b in stories[i + 1:]:
-            if a["id"] in gone or b["id"] in gone or a.get("topic") not in MACRO_TOPICS or a.get("topic") != b.get("topic"):
+            if a["id"] in gone or b["id"] in gone or a.get("topic") != RELEASE_TOPIC or b.get("topic") != RELEASE_TOPIC:
                 continue
             if (a.get("latest") or "")[:10] != (b.get("latest") or "")[:10]:
                 continue
             shared = figures.get(a["id"], set()) & figures.get(b["id"], set())
-            if len({m for m, _ in shared}) < 2:
+            fa, fb = figures.get(a["id"], set()), figures.get(b["id"], set())
+            if len({m for m, _ in shared}) < 2 or len(shared) < 0.5 * min(len(fa), len(fb)):
                 continue
             for key in ("article_ids", "fact_article_ids"):
                 a[key] = list(dict.fromkeys(a.get(key, []) + b.get(key, [])))

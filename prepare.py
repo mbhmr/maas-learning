@@ -109,7 +109,13 @@ def main():
     if args.remerge:
         if not (args.out or args.end):
             ap.error("--remerge needs --end (the prepared day) or --out")
-        return remerge(Path(args.out) if args.out else Path("output") / args.end)
+        out = Path(args.out) if args.out else Path("output") / args.end
+        end = args.end or out.name
+        try:
+            datetime.fromisoformat(end)
+        except ValueError:
+            ap.error(f"--remerge needs --end YYYY-MM-DD (the folder {out.name} is not a date)")
+        return remerge(out, end)
 
     articles = load_articles(data=args.data)
     args.end = args.end or last_full_day(articles)
@@ -177,7 +183,7 @@ def main():
           f"{len(rejected)} sources rejected")
 
 
-def remerge(out):
+def remerge(out, end):
     """merge_same_release on a day that is already prepared, for days prepared before it existed (18 Nov).
 
     facts.json keeps its modification time on purpose: the API keys cached briefings by it, and the only change
@@ -185,7 +191,7 @@ def remerge(out):
     briefing of the day would be written again on its next request."""
     stories = json.loads((out / "stories.json").read_text(encoding="utf-8"))
     prepared = json.loads((out / "facts.json").read_text(encoding="utf-8"))
-    merges = merge_same_release(stories, prepared["facts"], out.name)
+    merges = merge_same_release(stories, prepared["facts"], end)
     for m in merges:
         print(f"  {m['merged']} -> {m['into']}: {m['title']} (shared {', '.join(m['shared'])})")
     if not merges:
@@ -194,6 +200,15 @@ def remerge(out):
     (out / "stories.json").write_text(json.dumps(stories, indent=2, ensure_ascii=False), encoding="utf-8")
     (out / "facts.json").write_text(json.dumps(prepared, indent=2, ensure_ascii=False), encoding="utf-8")
     os.utime(out / "facts.json", ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    log = out / "merge_log.json"
+    info = json.loads(log.read_text(encoding="utf-8")) if log.exists() else {}
+    info["same_release"] = info.get("same_release", []) + merges
+    log.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+    if (out / "editions").exists():  # shared editions were written from the old stories, as in main()
+        bin_ = out.parent / "_papierkorb"
+        bin_.mkdir(exist_ok=True)
+        (out / "editions").rename(bin_ / f"editions-{out.name}-{time.strftime('%Y%m%d-%H%M%S')}")
+    print(f"joined {len(merges)}; restart the API so its pipeline numbers re-read facts.json")
 
 
 if __name__ == "__main__":

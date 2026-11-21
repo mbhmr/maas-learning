@@ -765,6 +765,14 @@ def test_annual_ppi_rate_is_not_inflation_alone():
     assert len(kept) == 1
     kept, _ = run("Die jährliche Erzeugerpreisinflation stieg auf 6,5 Prozent.", facts=[fact], lang="de")
     assert len(kept) == 1
+    for text, lang in (("Inflation in producer prices accelerated to 6.5 percent.", "en"),
+                       ("Die Inflationsrate der Erzeugerpreise stieg auf 6,5 Prozent.", "de"),
+                       ("De inflatie van de producentenprijzen steeg naar 6,5 procent.", "nl")):
+        kept, _ = run(text, facts=[fact], lang=lang)
+        assert len(kept) == 1, text
+    _, dropped = run("US PPI rose, with annual inflation at 6.5 percent.", facts=[fact])
+    assert dropped and "inflation measure unclear" in dropped[0]["why"]
+    assert not script.ENGLISH_GIVEAWAY.search("De omzet in non-food steeg met 2 procent.")
     cpi = mkfact(quote="Annual CPI inflation rose to 3.6% in October.")
     kept, _ = run("Annual inflation rose to 3.6 percent in October.", facts=[cpi])
     assert len(kept) == 1  # consumer prices are what "inflation" means

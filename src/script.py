@@ -618,9 +618,9 @@ ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained
                               # function words in lower case only: "After-Hours-Handel", "This Is Money" are German
                               # usage or names; "these" is Dutch for thesis, "of" Dutch for or
                               r"|(?-i:\b(with|could|their|because|which|would|about|from|those|that|you|your|"
-                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate|has|its|priced|offering|food)\b)"
+                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate|has|its|priced|offering)\b)"
                               # English index names kept in a Dutch line ("Producer Price Index", "zonder food,
-                              # energy en trade services", belegger preset 21.11.)
+                              # energy en trade services", belegger preset 21.11.); not "food": "non-food" is Dutch
                               r"|\b(producer price|trade services|consumer price)\b"
                               r"|\bon \d{1,2} [a-z]", re.I)
 
@@ -735,11 +735,15 @@ def unclear_inflation(text, quotes):
     if not PRODUCER.search(src) or CONSUMER.search(src):
         return None
     for m in re.finditer(r"inflation|inflatie", text, re.I):
-        before = text[max(0, m.start() - 25):m.start()]
-        # a figure for it in the same clause: "annual inflation accelerated to 6.5 percent", not the reading
-        # "Der Inflationsdruck bleibt sichtbar", which is right for producer prices too
-        figure = re.search(r"\d", re.split(r"[;.!?]|, and |, und |, en ", text[m.end():], maxsplit=1)[0])
-        if figure and not re.search(r"PPI|producer|erzeuger|producent|wholesale|großhandel|groothandel", before, re.I):
+        # the words of this clause right before it ("Erzeugerpreisinflation" is one word) ...
+        before = re.split(r"[;!?]|\.\s|, (?:and|with|und|mit|en|met)\b", text[max(0, m.start() - 25):m.start()])[-1]
+        # ... and after it up to its figure: "Inflation in producer prices", "Inflationsrate der Erzeugerpreise".
+        # Only with a figure in the clause: the reading "Der Inflationsdruck bleibt sichtbar" is right for PPI too
+        after = re.split(r"[;!?]|\.\s|, (?:and|und|en)\b", text[m.end():], maxsplit=1)[0]
+        figure = re.search(r"\d", after)
+        named = re.search(r"PPI|producer|erzeuger|producent|wholesale|großhandel|groothandel",
+                          before + text[m.end():m.end() + (figure.start() if figure else 0)], re.I)
+        if figure and not named:
             return text[max(0, m.start() - 12):m.end()].strip()
     return None
 

@@ -6,7 +6,7 @@
 
 Checks per briefing (a briefing passes a check only if every line passes it):
   sourced       every news line (claim, context) has a source with a link and a quote
-  figures       every figure a claim speaks, scale word included, is in one of its quotes, each quote read in its
+  figures       every figure a news line speaks, scale word included, is in one of its quotes, each quote read in its
                 own language (the pipeline's number reader, but none of its allowances: a source year counts
                 only as part of a date, "October 2026")
   verbatim      every quote stands word for word in the article it links to (needs data/)
@@ -131,6 +131,9 @@ def language_of(text):
     return best if hits[best] >= 1 and list(hits.values()).count(hits[best]) == 1 else None
 
 
+FACT_STORY = {}  # fact id -> story id, from the facts.json the briefings were written from (main fills it)
+
+
 def check(briefing, stories=None, articles=None):
     """{check: (passed True/False/None, [problems])} for one briefing dict."""
     lang = briefing["profile"]["language"]
@@ -148,9 +151,7 @@ def check(briefing, stories=None, articles=None):
     res["sourced"] = (not bad and bool(news), bad or ([] if news else ["no news line"]))
 
     bad = []
-    for c in news:
-        if c["kind"] != "claim":
-            continue
+    for c in news:  # context lines too: a figure there must be in a quote as much as in a claim
         years = {float(s["date"][:4]) for s in c["sources"] if s.get("date")}
         missing = line_figures(year_dates(c["text"], years), lang) - quote_figures(c["sources"])
         if missing:
@@ -158,8 +159,9 @@ def check(briefing, stories=None, articles=None):
     res["figures"] = (not bad, bad)
 
     if articles is not None:  # the quote itself must stand word for word in the article it links to
-        bad = [f"{s['articleId']}: {s['quote'][:80]}" for c in news for s in c["sources"]
-               if s.get("articleId") in articles and norm(s["quote"]) not in articles[s["articleId"]]]
+        # a source whose article is not in the data fails too: an invented id must not skip the check
+        bad = [f"{s.get('articleId')}: {s['quote'][:80]}" for c in news for s in c["sources"]
+               if s.get("articleId") not in articles or norm(s["quote"]) not in articles[s["articleId"]]]
         res["verbatim"] = (not bad, bad)
 
     bad = []
@@ -207,11 +209,15 @@ def check(briefing, stories=None, articles=None):
         if c["kind"] != "claim":
             continue
         years = {float(s["date"][:4]) for s in c["sources"] if s.get("date")}
-        # telling figures only: "Take-Two" is a 2, "a new 2026 high" a year; 0.2, 6.5, 15.88 or 351,000 are news
+        # figures written as digits ("Take-Two" is no 2), no years ("a new 2026 high")
+        digits = {float(d.replace(",", "")) if lang == "en" else float(d.replace(".", "").replace(",", "."))
+                  for d in re.findall(r"\d+(?:[.,]\d+)*", c["text"])} if c["text"] else set()
         figs = {x for x in line_figures(year_dates(c["text"], years), lang) - SCALES
-                if not (x == int(x) and (x < 10 or 1900 <= x <= 2100))}
-        # the article and the story ("s3" of fact "s3-f1") a line quotes
-        arts = {s.get("articleId") for s in c["sources"]} | {(s.get("factId") or "").split("-")[0] for s in c["sources"]}
+                if not (x == int(x) and (1900 <= x <= 2100 or x not in digits))}
+        # the articles and stories a line quotes; the story comes from facts.json, because a merged story keeps
+        # the fact ids of the story that joined it ("s5-f1" belongs to s4 after the 18 Nov retail merge)
+        arts = {s.get("articleId") for s in c["sources"]} | {
+            FACT_STORY.get(s.get("factId"), (s.get("factId") or "").split("-")[0]) for s in c["sources"]}
         arts.discard("")
         for text, earlier, earlier_arts in seen:
             same = figs & earlier
@@ -226,15 +232,18 @@ def check(briefing, stories=None, articles=None):
     bad = []
     month = "|".join(MONTHS)
     for c in news:
-        if re.search(rf"\b(in|im)\s+({month})\b,?\s+(on|am|op)\s+(the\s+)?(\d{{1,2}}\.?\s+({month})|({month})\s+\d)",
-                     c["text"], re.I):
+        if re.search(rf"\b(in|im)\s+({month})\b\.?(\s+\d{{4}})?,?\s+(on|am|op)\s+(the\s+)?"
+                     rf"(\d{{1,2}}(st|nd|rd|th)?\.?\s+({month})|({month})\.?\s+\d)", c["text"], re.I):
             bad.append(f"month and release date side by side: {c['text']}")
         quotes = " ".join(s["quote"] for s in c["sources"])
         if re.search(r"\bPPI\b|producer.?price|erzeugerpreis|producentenprijs", quotes, re.I) and not re.search(
                 r"\b(CPI|HICP|PCE)\b|consumer.?price|verbraucherpreis|consumentenprijs", quotes, re.I):
-            for m in re.finditer(r"(\w+[ -]){0,2}(inflation|inflatie)\b[^;.!?]*?\d", c["text"], re.I):
-                said = c["text"][max(0, m.start() - 25):m.end()]  # "Erzeugerpreisinflation" is one word
-                if not re.search(r"PPI|producer|erzeuger|producent|wholesale|großhandel|groothandel", said, re.I):
+            for m in re.finditer(r"(inflation|inflatie)\w*([^;!?]*?\d)", c["text"], re.I):
+                # the words of THIS clause right before the word ("Erzeugerpreisinflation" is one word) and the
+                # words up to its figure ("Inflation in producer prices rose to 6.5 percent")
+                before = re.split(r"[;!?]|\.\s|, (?:and|with|und|mit|en|met)\b", c["text"][max(0, m.start() - 25):m.start()])[-1]
+                if not re.search(r"PPI|producer|erzeuger|producent|wholesale|großhandel|groothandel",
+                                 before + m.group(0), re.I):
                     bad.append(f"'inflation' for a producer price figure: {c['text']}")
                     break
     res["wording"] = (not bad, bad)
@@ -327,6 +336,8 @@ def main():
     # a pregenerate.py run folder keeps the stories it was written from; a later --remerge of the day re-ranks them
     own = [f / "stories.json" for f in folders if (f / "stories.json").exists()]
     stories = json.loads((own[0] if own else day / "stories.json").read_text(encoding="utf-8"))
+    facts_file = own[0].with_name("facts.json") if own else day / "facts.json"
+    FACT_STORY.update({f["id"]: f["story_id"] for f in json.loads(facts_file.read_text(encoding="utf-8"))["facts"]})
     rows, table = run(paths, stories, args.fit)
     if args.json:
         print(json.dumps({"table": table, "rows": rows}, indent=2, ensure_ascii=False))

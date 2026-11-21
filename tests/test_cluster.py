@@ -380,3 +380,13 @@ def test_one_shared_figure_is_not_the_same_release():
     facts = [_fact("s1-f1", "s1", "us_retail_sales_mom", "0.2%"), _fact("s2-f1", "s2", "us_retail_sales_mom", "0.2%"),
              _fact("s2-f2", "s2", "us_import_prices_mom", "1.1%")]
     assert clustering.merge_same_release(stories, facts, "2026-11-18") == []
+
+
+def test_two_shared_figures_of_many_are_not_the_same_release():
+    # a Fed speech quoting the rate range and the jobless rate is not the jobs report
+    stories = [_story("s1"), _story("s2")]
+    shared = [("fed_funds_range", "3.75"), ("us_unemployment_rate", "4.4%")]
+    facts = [_fact(f"s{n}-f{k}", f"s{n}", m, v) for n in (1, 2) for k, (m, v) in enumerate(shared)]
+    facts += [_fact(f"s1-x{k}", "s1", f"speech_point_{k}", f"{k + 1}.5") for k in range(4)]
+    facts += [_fact(f"s2-x{k}", "s2", f"jobs_detail_{k}", f"{k + 1}.25") for k in range(4)]
+    assert clustering.merge_same_release(stories, facts, "2026-11-18") == []
