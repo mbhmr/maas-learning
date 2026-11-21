@@ -426,16 +426,25 @@ export default function App() {
     store.set('volume', String(volume))
   }, [volume, muted, briefing])
 
-  const seek = (t) => { if (audio.current) { audio.current.currentTime = t; setTime(t) } }
   const [intro, setIntro] = useState(false)
+  const introOn = useRef(false)  // the jingle is playing or about to: a seek cuts it and goes straight to the voice
+  const seek = (t) => {
+    if (!audio.current) return
+    audio.current.currentTime = t; setTime(t)
+    if (introOn.current) {
+      introOn.current = false; jingle.current?.pause(); setIntro(false)
+      audio.current.play().catch(() => {})
+    }
+  }
   // the station jingle (ElevenLabs Music) plays once before the briefing starts from the top
   const toggle = () => {
     if (!audio.current) return
-    if (intro) { jingle.current.pause(); setIntro(false); return }
+    if (introOn.current) { introOn.current = false; jingle.current.pause(); setIntro(false); return }
     if (playing) { audio.current.pause(); return }
     if (audio.current.currentTime < 0.2 && jingle.current) {
+      introOn.current = true; setIntro(true)
       jingle.current.currentTime = 0
-      jingle.current.play().then(() => setIntro(true)).catch(() => audio.current.play())
+      jingle.current.play().catch(() => { if (introOn.current) { introOn.current = false; setIntro(false); audio.current.play() } })
     } else audio.current.play()
   }
   const openClaim = (c) => { setPinned(c.id); setSheet(true); if (c.start != null) seek(c.start) }
@@ -568,7 +577,8 @@ export default function App() {
                 </div>
                 {briefing.audioUrl && (<>
                   <audio ref={jingle} src="/api/sound/jingle.mp3" preload="auto"
-                    onEnded={() => { setIntro(false); audio.current?.play() }} onError={() => setIntro(false)} />
+                    onEnded={() => { if (!introOn.current) return; introOn.current = false; setIntro(false); audio.current?.play() }}
+                    onError={() => { introOn.current = false; setIntro(false) }} />
                   <audio ref={audio} src={briefing.audioUrl} preload="auto"
                     onTimeUpdate={onTime}
                     onSeeking={(e) => { lastT.current = e.target.currentTime }}
