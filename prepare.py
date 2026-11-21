@@ -10,6 +10,7 @@ Writes output/<end>/stories.json and output/<end>/facts.json.
 """
 import argparse
 import json
+import os
 import re
 import time
 from collections import Counter
@@ -18,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from src.articles import load_articles
-from src.cluster import cluster, merge_and_rate
+from src.cluster import cluster, merge_and_rate, merge_same_release
 from src.facts import extract_facts
 from src.llm import ask_json
 
@@ -99,10 +100,16 @@ def main():
     ap.add_argument("--data", help="folder with your Newstex .jsonl files (default data/)")
     ap.add_argument("--start", help="first UTC day, YYYY-MM-DD (default: 5 days before --end)")
     ap.add_argument("--end", help="last UTC day, the briefing is for the morning after (default: the newest "
-                                  "article in the data)")
+                                  "full day of the data)")
     ap.add_argument("--out", help="folder to write to (default output/<end>, which the player lists)")
     ap.add_argument("--stories-only", action="store_true", help="group by code only, no model calls")
+    ap.add_argument("--remerge", action="store_true", help="only join same-release stories in an existing day "
+                                                           "(no model calls, story and fact ids stay)")
     args = ap.parse_args()
+    if args.remerge:
+        if not (args.out or args.end):
+            ap.error("--remerge needs --end (the prepared day) or --out")
+        return remerge(Path(args.out) if args.out else Path("output") / args.end)
 
     articles = load_articles(data=args.data)
     args.end = args.end or last_full_day(articles)
@@ -151,6 +158,8 @@ def main():
         results = list(pool.map(work, chosen))
     facts = [f for fs, _ in results for f in fs]
     rejected = [r for _, rs in results for r in rs]
+    info["same_release"] = merge_same_release(stories, facts, args.end)
+    (out / "merge_log.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     for s in stories:
         s["title"] = title_from_facts(s, facts, articles)
     # stories and facts are written together at the end: story ids are renumbered on every run, so a briefing
@@ -166,6 +175,25 @@ def main():
     conflicts = sum(f["conflict"] for f in facts)
     print(f"{len(chosen)} stories with facts: {len(facts)} facts verified ({conflicts} with conflicting sources), "
           f"{len(rejected)} sources rejected")
+
+
+def remerge(out):
+    """merge_same_release on a day that is already prepared, for days prepared before it existed (18 Nov).
+
+    facts.json keeps its modification time on purpose: the API keys cached briefings by it, and the only change
+    is which story a fact belongs to, never a figure, quote or source of a spoken line. Without it every saved
+    briefing of the day would be written again on its next request."""
+    stories = json.loads((out / "stories.json").read_text(encoding="utf-8"))
+    prepared = json.loads((out / "facts.json").read_text(encoding="utf-8"))
+    merges = merge_same_release(stories, prepared["facts"], out.name)
+    for m in merges:
+        print(f"  {m['merged']} -> {m['into']}: {m['title']} (shared {', '.join(m['shared'])})")
+    if not merges:
+        return print("nothing to join")
+    stamp = (out / "facts.json").stat()
+    (out / "stories.json").write_text(json.dumps(stories, indent=2, ensure_ascii=False), encoding="utf-8")
+    (out / "facts.json").write_text(json.dumps(prepared, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.utime(out / "facts.json", ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
 
 
 if __name__ == "__main__":

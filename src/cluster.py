@@ -334,3 +334,65 @@ def merge_and_rate(stories, articles, ask_json, end_day):
     for n, s in enumerate(result, 1):
         s["rank"], s["id"] = n, f"s{n}"
     return result, {"merges": merges, "refused": refused, "proposed": out["merge"]}
+
+
+_PERIOD = re.compile(r"(_(january|february|march|april|may|june|july|august|september|october|november|december))?"
+                     r"(_\d{4})?$")
+
+
+def _release_figures(facts):
+    """(metric without its month and year, figures of the value) per fact: "us_retail_sales_mom_october_2026" with
+    "0.2%" and "us_retail_sales_mom" with "0.2 %" are the same figure of the same release."""
+    from .facts import numbers
+    return {(_PERIOD.sub("", f["metric"]), frozenset(numbers(f["value"]))) for f in facts}
+
+
+def merge_same_release(stories, facts, end_day):
+    """Two macro stories of the same day that share two or more figures of the same release are one story.
+
+    The headline merge needs a shared rare name, and "Retail Sales Increased in Line with Expectations" (Zacks) and
+    "US Retail Sales Slow to 0.2%" (ActionForex) share none, so on 18 Nov the October retail sales were two stories
+    with the same 0.2 and 0.6 percent (found by the video review, 21.11.). This runs after the facts, so it compares
+    checked figures, not words. Same topic is required: "Dollar Firms After Retail Sales" (currencies) quotes the
+    same figures but is a story about the dollar. Ids stay (facts and saved briefings point at them); the joining
+    story's facts move to the bigger story, then the stories are re-scored and re-ranked. Returns the merges.
+    """
+    by_story = {}
+    for f in facts:
+        by_story.setdefault(f["story_id"], []).append(f)
+    figures = {sid: _release_figures(fs) for sid, fs in by_story.items()}
+    end = datetime.fromisoformat(end_day + "T23:59:59+00:00")
+    gone, merges = set(), []
+    for i, a in enumerate(stories):
+        for b in stories[i + 1:]:
+            if a["id"] in gone or b["id"] in gone or a.get("topic") not in MACRO_TOPICS or a.get("topic") != b.get("topic"):
+                continue
+            if (a.get("latest") or "")[:10] != (b.get("latest") or "")[:10]:
+                continue
+            shared = figures.get(a["id"], set()) & figures.get(b["id"], set())
+            if len({m for m, _ in shared}) < 2:
+                continue
+            for key in ("article_ids", "fact_article_ids"):
+                a[key] = list(dict.fromkeys(a.get(key, []) + b.get(key, [])))
+            a["headlines"] = a.get("headlines", []) + b.get("headlines", [])
+            a["publishers"] = sorted(set(a["publishers"]) | set(b["publishers"]))
+            a["translations"] = {**b.get("translations", {}), **a.get("translations", {})}
+            a["latest"] = max(a["latest"], b["latest"])
+            a["importance"] = max(a["importance"], b["importance"])
+            a["selected"] = a.get("selected", False) or b.get("selected", False)
+            for f in by_story.get(b["id"], []):
+                f["story_id"] = a["id"]
+            figures[a["id"]] = figures.get(a["id"], set()) | figures.pop(b["id"], set())
+            gone.add(b["id"])
+            merges.append({"into": a["id"], "merged": b["id"], "title": b["title"],
+                           "shared": sorted(m for m, _ in shared)})
+    kept = [s for s in stories if s["id"] not in gone]
+    for s in kept:
+        if any(m["into"] == s["id"] for m in merges):
+            s["score"] = rank_score({**s, "title": s.get("ranked_title", s["title"])}, len(s["article_ids"]),
+                                    freshness(datetime.fromisoformat(s["latest"]), end))
+    kept.sort(key=lambda s: -s["score"])
+    for n, s in enumerate(kept, 1):
+        s["rank"] = n
+    stories[:] = kept
+    return merges

@@ -741,3 +741,27 @@ def test_headline_name_rule_does_not_let_a_wrong_name_through():
                            names, ["Jensen Huang keeps door open"]) == ["Huang"]
     assert unquoted_people("Jensen Huang resigned as Nvidia CEO.", ["The 63-year-old resigned last week."], names,
                            ["Jensen Huang keeps door open"]) == []
+
+
+def test_period_and_release_date_side_by_side_go_back_to_the_writer():
+    # video review 21.11.: "rose 0.3 percent in October on 13 November" reads like one muddled date
+    fact = mkfact(quote="The October Producer Price Index (PPI) rose 0.3% month over month.",
+                  date="2026-11-13T13:30:00+00:00")
+    _, dropped = run("US producer prices rose 0.3 percent in October on 13 November.", facts=[fact])
+    assert dropped and "period and release date" in dropped[0]["why"]
+    kept, _ = run("On 13 November, data showed US producer prices rose 0.3 percent in October.", facts=[fact])
+    assert len(kept) == 1
+    assert any(dropped[0]["why"].startswith(r) for r in script.REPAIRABLE)
+
+
+def test_annual_ppi_rate_is_not_inflation_alone():
+    fact = mkfact(quote="annual PPI inflation accelerated from 6.3% to 6.5%.")
+    _, dropped = run("US producer prices rose, and annual inflation accelerated to 6.5 percent.", facts=[fact])
+    assert dropped and "inflation measure unclear" in dropped[0]["why"]
+    kept, _ = run("Annual PPI inflation accelerated to 6.5 percent.", facts=[fact])
+    assert len(kept) == 1
+    kept, _ = run("Die jährliche Erzeugerpreisinflation stieg auf 6,5 Prozent.", facts=[fact], lang="de")
+    assert len(kept) == 1
+    cpi = mkfact(quote="Annual CPI inflation rose to 3.6% in October.")
+    kept, _ = run("Annual inflation rose to 3.6 percent in October.", facts=[cpi])
+    assert len(kept) == 1  # consumer prices are what "inflation" means

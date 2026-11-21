@@ -16,6 +16,9 @@ Checks per briefing (a briefing passes a check only if every line passes it):
   language      every line whose function words point to one language reads as the listener's language
   length        spoken length within 25 % of the request (audio timing if there is audio, else words / the
                 pipeline's own speaking rate, so without audio it only checks the word budget)
+  no_repeats    no two claims share two or more figures (the same news told twice)
+  wording       no month-of-the-figure right before the release date ("in October on 13 November"), no bare
+                "inflation" for a producer price (PPI) figure
   audio         the speech-recognition re-check heard every figure as written (briefings with audio only)
   must_hear     the highest-ranked must-hear story of the day (central banks, macro, or two or more outlets; among
                 the stories with facts) whose topic one of the spoken stories shares is spoken too
@@ -188,6 +191,38 @@ def check(briefing, stories=None, articles=None):
         if ac.get("error"):
             problems.append(f"check failed: {ac['error']}")
         res["audio"] = (not problems and ac.get("ok") == ac.get("checked"), problems)
+
+    # the same news twice (video review, 21.11.: retail sales 0.2 and ex-autos 0.6 percent in two lines): two claims
+    # that share two or more figures; scale words and dates do not count
+    bad, seen = [], []
+    for c in news:
+        if c["kind"] != "claim":
+            continue
+        years = {float(s["date"][:4]) for s in c["sources"] if s.get("date")}
+        figs = line_figures(year_dates(c["text"], years), lang) - SCALES
+        for text, earlier in seen:
+            if len(figs & earlier) >= 2:
+                bad.append(f"{sorted(figs & earlier)} again in: {c['text']}  (first: {text})")
+        seen.append((c["text"], figs))
+    res["no_repeats"] = (not bad, bad)
+
+    # wording a listener trips over (video review, 21.11.): the figure's month and the release date side by side
+    # ("rose 0.3 percent in October on 13 November"), and "inflation" for a producer price (PPI) figure
+    bad = []
+    month = "|".join(MONTHS)
+    for c in news:
+        if re.search(rf"\b(in|im)\s+({month})\b,?\s+(on|am|op)\s+(the\s+)?(\d{{1,2}}\.?\s+({month})|({month})\s+\d)",
+                     c["text"], re.I):
+            bad.append(f"month and release date side by side: {c['text']}")
+        quotes = " ".join(s["quote"] for s in c["sources"])
+        if re.search(r"\bPPI\b|producer.?price|erzeugerpreis|producentenprijs", quotes, re.I) and not re.search(
+                r"\b(CPI|HICP|PCE)\b|consumer.?price|verbraucherpreis|consumentenprijs", quotes, re.I):
+            for m in re.finditer(r"(\w+[ -]){0,2}(inflation|inflatie)\b[^;.!?]*?\d", c["text"], re.I):
+                said = c["text"][max(0, m.start() - 25):m.end()]  # "Erzeugerpreisinflation" is one word
+                if not re.search(r"PPI|producer|erzeuger|producent", said, re.I):
+                    bad.append(f"'inflation' for a producer price figure: {c['text']}")
+                    break
+    res["wording"] = (not bad, bad)
 
     if stories is not None:
         res["must_hear"] = must_hear(briefing, stories)

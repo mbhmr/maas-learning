@@ -173,7 +173,10 @@ How a story is told:
 - Never join two facts with "as", "while", "so", "because", "after", "weil", "während", "terwijl", "omdat"
   unless one quote states that link: use two sentences. No judging words the quote does not use ("sticky",
   "fragile", "hot", "strong").
-- Prefer the freshest facts. A story marked OLDER gets its date in the line ("on 14 November").
+- Prefer the freshest facts. A story marked OLDER gets its date in the line, as its own phrase ("On 14
+  November, ..."), never right after the month the figure is for ("rose 0.3 percent in October on 13 November").
+- Name the measure as the quote does: producer prices (PPI) are not "inflation" on their own, say "PPI
+  inflation" or "producer price inflation".
 - You are a wide-awake, genuinely enthusiastic morning host who makes the listener feel smart: talk to them
   ("you"), exclamation marks where a real host would raise the voice. The energy is in HOW you say it, never
   in WHAT happened: keep the source's verbs and size ("rose" stays "rose", never "soared").
@@ -329,7 +332,8 @@ def write_script(profile, stories, facts):
 
 REPAIRABLE = ("content check", "numbers not in sources", "too long for the ear", "starts with a bare number",
               "superlative not in sources", "English words", "context line with a figure",
-              "person not in its quotes", "time qualifier not in its quotes")  # a rewrite can drop the name or the qualifier
+              "person not in its quotes", "time qualifier not in its quotes", "period and release date",
+              "inflation measure unclear")  # a rewrite can drop the name or the qualifier
 REPAIR_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["lines"],
                  "properties": {"lines": SCHEMA["properties"]["lines"]}}
 
@@ -707,6 +711,32 @@ def unsupported_session(text, quotes):
 ADVICE = re.compile(r"\b(buy|buying|sell(?!-)|selling|invest(ing)?|you should|time to|kauf\w*|verkauf\w*|investier\w*|"
                     r"solltest|lohnt sich|koop\w*|kopen|verkoop\w*|verkopen|investeer\w*|zou je moeten)\b", re.I)
 BARE_NUMBER_START = re.compile(r"^\W*\d")
+_M = MONTH_WORDS.pattern[3:-3]
+# "rose 0.3 percent in October on 13 November": the month the figure is for and the day it was published side by
+# side read like one muddled date (video review, 21.11.); the release date goes in its own phrase
+PERIOD_THEN_DATE = re.compile(rf"\b(?:in|im)\s+(?:{_M})\b\.?(?:\s+\d{{4}})?,?\s+(?:on|am|op)\s+(?:the\s+)?"
+                              rf"(?:\d{{1,2}}\.?\s+(?:{_M})|(?:{_M})\s+\d{{1,2}})\b", re.I)
+PRODUCER = re.compile(r"\bPPI\b|producer.?price|erzeugerpreis|producentenprijs", re.I)
+CONSUMER = re.compile(r"\b(?:CPI|HICP|PCE)\b|consumer.?price|verbraucherpreis|consumentenprijs", re.I)
+
+
+def unclear_inflation(text, quotes):
+    """"annual inflation" for the annual PPI rate (video review, 21.11.): when the quotes measure producer prices
+    only, every "inflation" with a figure must say so in the words right before it ("PPI inflation",
+    "Erzeugerpreisinflation"). Returns the bare phrase or None."""
+    src = " ".join(quotes)
+    if not PRODUCER.search(src) or CONSUMER.search(src):
+        return None
+    for m in re.finditer(r"inflation|inflatie", text, re.I):
+        before = text[max(0, m.start() - 25):m.start()]
+        # a figure for it in the same clause: "annual inflation accelerated to 6.5 percent", not the reading
+        # "Der Inflationsdruck bleibt sichtbar", which is right for producer prices too
+        figure = re.search(r"\d", re.split(r"[;.!?]|, and |, und |, en ", text[m.end():], maxsplit=1)[0])
+        if figure and not re.search(r"PPI|producer|erzeuger|producent", before, re.I):
+            return text[max(0, m.start() - 12):m.end()].strip()
+    return None
+
+
 DASH = re.compile(r"(?<!\d)\s+[—–-]\s+|\s+[—–-]\s+(?!\d)")  # a pause, not a range "3.75 - 4.00": comma
 
 
@@ -775,6 +805,14 @@ def check_script(raw_lines, facts, lang):
             continue
         if RELATIVE_TIME.search(line["text"]):  # the briefing is heard on another day than the article was written
             dropped.append({**line, "why": "relative date (say the date instead)"})
+            continue
+        clash = PERIOD_THEN_DATE.search(line["text"])
+        if clash:
+            dropped.append({**line, "why": f"period and release date side by side: {clash.group(0)}"})
+            continue
+        bare = unclear_inflation(line["text"], quotes)
+        if bare:
+            dropped.append({**line, "why": f"inflation measure unclear, the quotes are producer prices: {bare}"})
             continue
         opening = " ".join(line["text"].lower().split()[:5])
         # the same figures again (two or more) is the same news, however it is worded

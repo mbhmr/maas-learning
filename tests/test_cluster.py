@@ -3,6 +3,7 @@ import pytest
 
 import re
 
+from src import cluster as clustering
 from src.cluster import ADVICE, ROUNDUP, cluster, merge_and_rate
 
 NOON = "2026-11-18T12:00:00+00:00"
@@ -341,3 +342,41 @@ def test_explain_rank_parts_add_up_to_the_score():
     got = explain_rank(s, "2026-11-18")
     assert abs(got["score"] - s["score"]) < 0.05 and any(p["points"] == -6 for p in got["parts"])
     assert explain_rank({**s, "score": 1.0}, "2026-11-18")["parts"] == []  # older formula: no made-up parts
+
+
+def _story(sid, topic="central banks and macro", latest="2026-11-17T15:00:00+00:00", pub="Zacks"):
+    return {"id": sid, "title": f"story {sid}", "article_ids": [f"a-{sid}"], "fact_article_ids": [f"a-{sid}"],
+            "headlines": [], "publishers": [pub], "translations": {}, "importance": 4, "topic": topic,
+            "latest": latest, "score": 10.0, "rank": 0}
+
+
+def _fact(fid, sid, metric, value):
+    return {"id": fid, "story_id": sid, "metric": metric, "value": value}
+
+
+def test_same_release_from_two_outlets_is_one_story():
+    # 18 Nov: Zacks and ActionForex on the October retail sales were two stories with the same 0.2 and 0.6 percent
+    stories = [_story("s4"), _story("s5", pub="ActionForex"), _story("s11", topic="currencies", pub="ActionForex"),
+               _story("s9", latest="2026-11-14T15:00:00+00:00")]
+    facts = [_fact("s4-f1", "s4", "us_retail_sales_mom_october_2026", "0.2%"),
+             _fact("s4-f2", "s4", "us_retail_sales_ex_autos_mom_october_2026", "0.6%"),
+             _fact("s5-f1", "s5", "us_retail_sales_mom", "0.2 %"),
+             _fact("s5-f2", "s5", "us_retail_sales_ex_autos_mom", "0.6%"),
+             _fact("s11-f1", "s11", "us_retail_sales_mom_october_2026", "0.2%"),       # a dollar story
+             _fact("s11-f2", "s11", "us_retail_sales_ex_autos_mom_october_2026", "0.6%"),
+             _fact("s9-f1", "s9", "us_retail_sales_mom", "0.2%"),                      # another day
+             _fact("s9-f2", "s9", "us_retail_sales_ex_autos_mom", "0.6%")]
+    merges = clustering.merge_same_release(stories, facts, "2026-11-18")
+    assert [(m["into"], m["merged"]) for m in merges] == [("s4", "s5")]
+    assert {s["id"] for s in stories} == {"s4", "s11", "s9"}
+    s4 = next(s for s in stories if s["id"] == "s4")
+    assert s4["publishers"] == ["ActionForex", "Zacks"] and s4["article_ids"] == ["a-s4", "a-s5"]
+    assert {f["id"] for f in facts if f["story_id"] == "s4"} == {"s4-f1", "s4-f2", "s5-f1", "s5-f2"}
+    assert clustering.explain_rank(s4, "2026-11-18")["score"] == s4["score"]  # re-scored with two outlets
+
+
+def test_one_shared_figure_is_not_the_same_release():
+    stories = [_story("s1"), _story("s2")]
+    facts = [_fact("s1-f1", "s1", "us_retail_sales_mom", "0.2%"), _fact("s2-f1", "s2", "us_retail_sales_mom", "0.2%"),
+             _fact("s2-f2", "s2", "us_import_prices_mom", "1.1%")]
+    assert clustering.merge_same_release(stories, facts, "2026-11-18") == []
