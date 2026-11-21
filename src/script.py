@@ -614,7 +614,7 @@ ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained
                               # function words in lower case only: "After-Hours-Handel", "This Is Money" are German
                               # usage or names; "these" is Dutch for thesis, "of" Dutch for or
                               r"|(?-i:\b(with|could|their|because|which|would|about|from|those|that|you|your|"
-                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate)\b)"
+                              r"as much as|plus or minus|called for|potentially|larger|revenue|interest rate|has|its|priced|offering)\b)"
                               r"|\bon \d{1,2} [a-z]", re.I)
 
 
@@ -732,7 +732,7 @@ def unclear_inflation(text, quotes):
         # a figure for it in the same clause: "annual inflation accelerated to 6.5 percent", not the reading
         # "Der Inflationsdruck bleibt sichtbar", which is right for producer prices too
         figure = re.search(r"\d", re.split(r"[;.!?]|, and |, und |, en ", text[m.end():], maxsplit=1)[0])
-        if figure and not re.search(r"PPI|producer|erzeuger|producent", before, re.I):
+        if figure and not re.search(r"PPI|producer|erzeuger|producent|wholesale|großhandel|groothandel", before, re.I):
             return text[max(0, m.start() - 12):m.end()].strip()
     return None
 

@@ -16,9 +16,10 @@ Checks per briefing (a briefing passes a check only if every line passes it):
   language      every line whose function words point to one language reads as the listener's language
   length        spoken length within 25 % of the request (audio timing if there is audio, else words / the
                 pipeline's own speaking rate, so without audio it only checks the word budget)
-  no_repeats    no two claims share two or more figures (the same news told twice)
+  no_repeats    no two claims share two telling figures, or one plus an article or story (the same news twice);
+                years and whole numbers under 10 do not count
   wording       no month-of-the-figure right before the release date ("in October on 13 November"), no bare
-                "inflation" for a producer price (PPI) figure
+                "inflation" for a producer price (PPI) figure ("wholesale inflation" is fine)
   audio         the speech-recognition re-check heard every figure as written (briefings with audio only)
   must_hear     the highest-ranked must-hear story of the day (central banks, macro, or two or more outlets; among
                 the stories with facts) whose topic one of the spoken stories shares is spoken too
@@ -42,7 +43,8 @@ MONTHS = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june":
           "mai": 5, "juni": 6, "juli": 7, "oktober": 10, "dezember": 12, "januari": 1, "februari": 2, "maart": 3,
           "mei": 5, "augustus": 8}
 DATE = re.compile(r"\b(\d{1,2})\.?\s+(" + "|".join(MONTHS) + r")\b|\b("
-                  + "|".join(MONTHS) + r")\s+(\d{1,2})(?:st|nd|rd|th)?\b", re.I)
+                  + "|".join(MONTHS) + r")\s+(\d{1,2})(?:st|nd|rd|th)?\b"
+                  r"(?!\s*(?:basis|bps?\b|per ?cent|%))", re.I)  # "a December 25 basis points hike" is no date
 DAY_FIRST = re.compile(r"\b(\d{1,2})\.?\s+(" + "|".join(MONTHS) + r")\b", re.I)  # de, nl: "im November 5 Prozent"
 SCALES = {1e3, 1e6, 1e9, 1e12}
 # words that exist in two of the languages ("in", "is") are left out
@@ -199,11 +201,18 @@ def check(briefing, stories=None, articles=None):
         if c["kind"] != "claim":
             continue
         years = {float(s["date"][:4]) for s in c["sources"] if s.get("date")}
-        figs = line_figures(year_dates(c["text"], years), lang) - SCALES
-        for text, earlier in seen:
-            if len(figs & earlier) >= 2:
-                bad.append(f"{sorted(figs & earlier)} again in: {c['text']}  (first: {text})")
-        seen.append((c["text"], figs))
+        # telling figures only: "Take-Two" is a 2, "a new 2026 high" a year; 0.2, 6.5, 15.88 or 351,000 are news
+        figs = {x for x in line_figures(year_dates(c["text"], years), lang) - SCALES
+                if not (x == int(x) and (x < 10 or 1900 <= x <= 2100))}
+        # the article and the story ("s3" of fact "s3-f1") a line quotes
+        arts = {s.get("articleId") for s in c["sources"]} | {(s.get("factId") or "").split("-")[0] for s in c["sources"]}
+        arts.discard("")
+        for text, earlier, earlier_arts in seen:
+            same = figs & earlier
+            # two shared figures are the same news; one is when both lines quote the same article or story too
+            if len(same) >= 2 or (same and arts & earlier_arts):
+                bad.append(f"{sorted(same)} again in: {c['text']}  (first: {text})")
+        seen.append((c["text"], figs, arts))
     res["no_repeats"] = (not bad, bad)
 
     # wording a listener trips over (video review, 21.11.): the figure's month and the release date side by side
@@ -219,7 +228,7 @@ def check(briefing, stories=None, articles=None):
                 r"\b(CPI|HICP|PCE)\b|consumer.?price|verbraucherpreis|consumentenprijs", quotes, re.I):
             for m in re.finditer(r"(\w+[ -]){0,2}(inflation|inflatie)\b[^;.!?]*?\d", c["text"], re.I):
                 said = c["text"][max(0, m.start() - 25):m.end()]  # "Erzeugerpreisinflation" is one word
-                if not re.search(r"PPI|producer|erzeuger|producent", said, re.I):
+                if not re.search(r"PPI|producer|erzeuger|producent|wholesale|großhandel|groothandel", said, re.I):
                     bad.append(f"'inflation' for a producer price figure: {c['text']}")
                     break
     res["wording"] = (not bad, bad)
@@ -309,7 +318,9 @@ def main():
     day = ROOT / "output" / args.day
     folders = [Path(f) for f in args.folder] if args.folder else [day / "briefings", day / "editions"]
     paths = sorted(p for f in folders for p in f.glob("**/briefing.json"))
-    stories = json.loads((day / "stories.json").read_text(encoding="utf-8"))
+    # a pregenerate.py run folder keeps the stories it was written from; a later --remerge of the day re-ranks them
+    own = [f / "stories.json" for f in folders if (f / "stories.json").exists()]
+    stories = json.loads((own[0] if own else day / "stories.json").read_text(encoding="utf-8"))
     rows, table = run(paths, stories, args.fit)
     if args.json:
         print(json.dumps({"table": table, "rows": rows}, indent=2, ensure_ascii=False))

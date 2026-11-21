@@ -557,7 +557,8 @@ def test_german_three_decimals_from_english_quote_become_german_decimals():
 
 def test_untranslated_dutch_lines_from_the_benchmark_are_caught():
     for text in ("Nvidia forecast fourth-quarter revenue of 130 miljard dollar, plus or minus 3%.",
-                 "Fed Governor Christopher Waller called for a potentially larger 50 basispunten hike."):
+                 "Fed Governor Christopher Waller called for a potentially larger 50 basispunten hike.",
+                 "Anthropic has priced its initial public offering at 83 Dollar a share."):
         assert script.ENGLISH_GIVEAWAY.search(text)
     assert not script.ENGLISH_GIVEAWAY.search("Nvidia verwacht een omzet van 130 miljard dollar, plus of min 3 procent.")
 
