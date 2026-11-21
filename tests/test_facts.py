@@ -287,3 +287,17 @@ def test_verify_rejects_macro_figure_without_country():
     bad = dict(fact([src("h1", "Core CPI increased 0.3%", "0.3%")]), claim="Core CPI increased 0.3% in October 2026.")
     ok, rej = verify_facts(story, [bad], art)
     assert ok == [] and rej[0]["why"] == "macro figure without country or region"
+
+
+def test_news_without_a_number_is_a_fact_too():
+    # 18 Nov: the top story (Huang willing to return) had no number, so it had no fact and could not be spoken
+    arts = {"h1": {"id": "h1", "publisher": "Invezz", "url": "https://x/h1", "date": "2026-11-17T17:11:00+00:00",
+                   "text": "Jensen Huang has signaled that he would be willing to return as Nvidia CEO."}}
+    f = {"metric": "huang_return", "claim": "Jensen Huang signaled he would be willing to return as Nvidia CEO.",
+         "value": "", "unit": "", "period": "17 November 2026", "importance": 5,
+         "sources": [src("h1", "Jensen Huang has signaled that he would be willing to return as Nvidia CEO.", "")]}
+    ok, rej = verify_facts({"id": "s1", "title": "Huang", "article_ids": ["h1"]}, [f], arts)
+    assert rej == [] and len(ok) == 1
+    f["sources"][0]["quote"] = "Jensen Huang will return as Nvidia CEO."  # not in the article
+    ok, _ = verify_facts({"id": "s1", "title": "Huang", "article_ids": ["h1"]}, [f], arts)
+    assert ok == []

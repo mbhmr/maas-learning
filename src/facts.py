@@ -98,6 +98,9 @@ SYSTEM = """You extract checkable facts from financial news for an audio briefin
 Rules:
 - Return the 3 to 6 most important facts about the story, the headline fact first.
 - Each fact has one value with unit and period (e.g. value '0.3', unit '% month on month', period 'October 2026').
+  News without a number is a fact too (a resignation, a statement, a hack, a decision): value '', unit '',
+  and the quote is the sentence that says it. The headline news always comes first, number or not.
+  (18 Nov: "Jensen Huang keeps door open to return as Nvidia CEO" was the top story and had no fact for it.)
 - For every article that states the fact, add a source with its article_id, the value as that article gives it,
   and a quote copied character for character from that article (one sentence or less, max 35 words) containing the value.
 - If articles give different values for the same metric, keep ONE fact and list each article with its own value.
