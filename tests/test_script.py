@@ -543,10 +543,16 @@ def test_short_names_count_in_the_greeting():
     assert script.calls_by_name("Good morning, Tom, here is your news!", "Tom")
 
 
-def test_german_three_decimals_from_english_quote_pass():
+def test_german_three_decimals_from_english_quote_become_german_decimals():
     fact = mkfact(quote="EUR/USD rose to 1.155 on Tuesday.")
     kept, _ = run("EUR/USD stieg auf 1.155.", facts=[fact], lang="de")
-    assert len(kept) == 1
+    assert len(kept) == 1 and "1,155" in kept[0]["text"]  # spoken "1.155" would be 1155 in German
+    fact = mkfact(quote="BitMine holds about 6.077 million ETH.")
+    kept, _ = run("BitMine hält etwa 6.077 Millionen ETH.", facts=[fact], lang="de")
+    assert "6,077 Millionen" in kept[0]["text"]
+    fact = mkfact(quote="Distillate stocks rose by 351,000 barrels.")
+    kept, _ = run("Die Destillatbestände stiegen um 351.000 Barrel.", facts=[fact], lang="de")
+    assert "351.000" in kept[0]["text"]  # a German thousand stays
 
 
 def test_weekday_is_a_relative_date_but_am_morgen_is_fine():
@@ -670,22 +676,13 @@ def test_title_follows_facts_when_headline_is_days_older():
     assert title_from_facts(story, facts, arts) == "Nasdaq opens 1.5% lower"
 
 
-def test_lead_story_of_a_heard_topic_goes_in():
-    from src.script import with_leads
-    s = lambda i, rank, topic, imp=3: {"id": i, "rank": rank, "topic": topic, "importance": imp}
-    lead, tech, crypto, other = s("a", 1, "tech", 5), s("b", 7, "tech"), s("c", 10, "crypto"), s("d", 21, "other", 5)
-    got = with_leads([tech, crypto], [lead, tech, crypto, other], k=2)
-    assert [x["id"] for x in got] == ["a", "b"]  # lead first, the lowest-ranked pick makes room
-    assert with_leads([crypto], [lead, crypto], k=2) == [crypto]  # topic not heard: no lead forced in
-    assert with_leads([lead, tech], [lead, tech], k=2) == [lead, tech]
-
-
 def test_untranslated_english_sentence_in_dutch_line_is_caught():
     from src.script import ENGLISH_GIVEAWAY as E
     assert E.search("Chase maintained that customers could still access their accounts and money.")
     assert E.search("Nvidia zei dat de omzet in the fourth quarter naar 130 miljard dollar gaat.")
     assert not E.search("NVIDIA stond op 18 november op de afpersingssite van The Gentlemen.")
     assert not E.search("Die waarschuwing houdt de IPO-these scherp in beeld.")
+    assert not E.search("Im After-Hours-Handel stieg die Aktie, schreibt This Is Money.")
 
 
 def test_fit_length_never_returns_an_empty_briefing():
@@ -715,3 +712,15 @@ def test_headline_of_the_quoted_article_backs_a_name_only_if_the_quote_names_no_
     assert unquoted_people(line, ["The 63-year-old resigned last week."], names, ["Jensen Huang keeps door open"]) == []
     assert unquoted_people("Waller wants 25 basis points.", ["Williams said 25 basis points is right."], names,
                            ["Fed's Waller calls for 50bps"]) == ["Waller"]
+
+
+def test_headline_name_rule_does_not_let_a_wrong_name_through():
+    from src.script import unquoted_people
+    names = {"Waller", "Huang"}  # Williams is not in the titled names of the facts
+    assert unquoted_people("Fed governor Waller said rates should fall.",
+                           ["New York Fed President John Williams said rates should fall."], names,
+                           ["Waller backs December cut"]) == ["Waller"]
+    assert unquoted_people("Huang said Nvidia will double output.", ["The company said it will double output."],
+                           names, ["Jensen Huang keeps door open"]) == ["Huang"]
+    assert unquoted_people("Jensen Huang resigned as Nvidia CEO.", ["The 63-year-old resigned last week."], names,
+                           ["Jensen Huang keeps door open"]) == []

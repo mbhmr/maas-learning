@@ -12,11 +12,12 @@ MAX_CHARS = 6000  # per article sent to the model; key facts sit near the top
 
 
 def norm(text):
-    """Lowercase, unify quotes and dashes, keep letters, digits and . , % $ ' - only."""
+    """Lowercase, unify quotes and dashes, keep letters, digits and . , % $ £ € ¥ ' - only (a quote that drops
+    the £ of "about £230 billion" is not word for word: eval/benchmark.py verbatim, 21.11.)."""
     text = text.lower()
     for a, b in (("’", "'"), ("‘", "'"), ("–", "-"), ("—", "-"), ("“", '"'), ("”", '"')):
         text = text.replace(a, b)
-    text = re.sub(r"[^\w%$.,'-]+", " ", text)
+    text = re.sub(r"[^\w%$£€¥.,'-]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 

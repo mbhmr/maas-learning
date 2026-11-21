@@ -58,24 +58,6 @@ SELECT_SCHEMA = {
 }
 
 
-LEAD_IMPORTANCE = 5  # the editor's top grade: the news of the day in its topic
-
-
-def with_leads(chosen, pool, k):
-    """The selection model sometimes skips the lead story of a topic the listener does hear (Nvidia CEO exit for a
-    tech-stock investor: measured on 18 Nov, eval/benchmark.py must_hear). A story graded 5/5 whose topic one of the
-    chosen stories shares goes in, at most two, in place of the lowest-ranked picks; then rank order for those."""
-    topics = {s.get("topic") for s in chosen}
-    leads = [s for s in pool if s.get("importance") == LEAD_IMPORTANCE and s.get("topic") in topics
-             and s not in chosen][:2]
-    if not leads:
-        return chosen
-    keep = sorted(chosen, key=lambda s: s.get("rank", 10**6))[:max(0, k - len(leads))]
-    order = {s["id"]: n for n, s in enumerate(chosen)}
-    kept = sorted(keep, key=lambda s: order[s["id"]])
-    return sorted(leads, key=lambda s: s.get("rank", 10**6)) + kept  # the lead story of the day first
-
-
 def select_stories(profile, stories, facts):
     """Returns (stories in listening order, interests nothing covers)."""
     k = max(2, round(profile["seconds"] / SECONDS_PER_STORY))
@@ -93,7 +75,6 @@ interests that no story covers, list those interests (in {LANG_NAME[profile['lan
     chosen = [by_id[i] for i in dict.fromkeys(out["story_ids"]) if i in by_id][:k]
     if not chosen:
         chosen = pool[:k]  # never an empty briefing: fall back to the top stories
-    chosen = with_leads(chosen, pool, k)
     # free model text goes into speech here, so only short plain topic names pass ("Tesla", "Solarenergie")
     # "nothing in our sources" must be true for the whole day, not only for the stories picked: a topic word that
     # appears in any story title of the day is not missing, the line would be wrong
@@ -625,9 +606,22 @@ _SINGULAR = {"de": [(r"(?<![\d.,])\b1 Milliarden\b", "1 Milliarde"), (r"(?<![\d.
 # Also a whole untranslated sentence (found by eval/benchmark.py in Dutch editions, 21.11.): English function words
 # that German and Dutch never use ("with no evidence it is", "could still access their accounts").
 ENGLISH_GIVEAWAY = re.compile(r"\b(rose|fell|rises|jumped|climbed|slipped|gained|said|says|than|while|prices|shares|"
-                              r"the(?!\s+(?-i:[A-Z]))|with|could|their|because|which|would|after|about|from|this|"
-                              r"those|that|you|your|as much as)\b"  # "The Gentlemen" is a name, "these" is Dutch
+                              r"the(?!\s+(?-i:[A-Z])))\b"  # "The Gentlemen" is a name
+                              # function words in lower case only: "After-Hours-Handel", "This Is Money" are German
+                              # usage or names; "these" is Dutch for thesis, "of" Dutch for or
+                              r"|(?-i:\b(with|could|their|because|which|would|about|from|those|that|you|your|"
+                              r"as much as)\b)"
                               r"|\bon \d{1,2} [a-z]", re.I)
+
+
+def german_decimals(text, allowed):
+    """'1.155' or '6.077' in a German or Dutch line is a thousand-dot number (1155), but when only the English decimal
+    (1.155) is in the quotes, the writer kept the English decimal point: it becomes '1,155'. Until 21.11. the checker
+    accepted such a line and the listener heard 6.077 million ETH as six thousand million (eval/benchmark.py)."""
+    def fix(m):
+        tok = m.group(0)
+        return tok.replace(".", ",") if float(tok.replace(".", "")) not in allowed and float(tok) in allowed else tok
+    return re.sub(r"(?<![\d.,])\d{1,3}\.\d{3}(?![\d]|[.,]\d)", fix, text)
 
 
 def _swap_number(m):
@@ -673,10 +667,18 @@ def unquoted_people(text, quotes, names, headlines=()):
     about Williams in an article headlined "Waller ..." still cannot carry Waller (on 18 Nov every Huang line was
     blocked for this, eval/benchmark.py must_hear)."""
     src = " ".join(quotes).lower()
-    quoted = {n for n in names if n.lower() in src}
-    heads = " ".join(headlines).lower() if not quoted else ""
+    # the headline only stands in for a quote that names nobody ("The 63-year-old resigned"): no titled person, no
+    # "First Last" name, and the line does not put words or a view in the person's mouth ("Huang said ...")
+    nobody = not any(n.lower() in src for n in names) and not PERSON_NAME.search(" ".join(quotes))
+    heads = " ".join(headlines).lower() if nobody and not ATTRIBUTION.search(text) else ""
     return sorted(n for n in names if re.search(rf"\b{re.escape(n)}", text) and n.lower() not in src
                   and n.lower() not in heads)
+
+
+PERSON_NAME = re.compile(r"\b[A-Z][a-z]+ (?:[A-Z]\. )?[A-Z][a-z]{2,}\b")  # "John Williams", "Jerome H. Powell"
+ATTRIBUTION = re.compile(r"\b(said|says|told|argues?|argued|wants?|wanted|calls? for|called for|warns?|warned|"
+                         r"expects?|expected|believes?|thinks?|sees|saw|predicts?|sagte|sagt|fordert|warnt|erwartet|"
+                         r"meint|zei|zegt|wil|waarschuwt|verwacht)\b", re.I)
 
 
 # "after hours", "premarket" and their German and Dutch words say WHEN a move happened. "Nvidia rose 1.6 percent in
@@ -743,11 +745,11 @@ def check_script(raw_lines, facts, lang):
         if not ids:  # every spoken line needs a verified source, also a "harmless" short one
             dropped.append({**line, "why": "no source"})
             continue
-        spoken = numbers(line["text"], lang)
         allowed = set().union(*(allowed_numbers(by_id[i], line["text"]) for i in ids))
+        if lang != "en":  # "6.077 million" from an English quote said as "6.077 Millionen" is 6,077 million in German
+            line["text"] = german_decimals(line["text"], allowed)
+        spoken = numbers(line["text"], lang)
         missing = spoken - allowed
-        if lang != "en":  # "1.155" kept from an English quote reads as 1155 in German and Dutch number style
-            missing = {x for x in missing if x >= 1e6 or round(x / 1000, 6) not in allowed}
         if missing:
             dropped.append({**line, "why": f"numbers not in sources: {sorted(missing)}"})
             continue

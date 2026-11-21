@@ -3,7 +3,7 @@
   load -> group (code) -> merge ongoing stories and rate importance (one small-model call on headlines, checked
   by code) -> pick stories (code) -> facts per story (small model, checked by code)
 
-Run:  .venv/Scripts/python prepare.py                       (the last 6 days of data/, here 13 to 18 November)
+Run:  .venv/Scripts/python prepare.py                       (the last 6 full days of data/, here 13 to 18 November)
       .venv/Scripts/python prepare.py --data D:/newstex        (your own Newstex .jsonl files, any file names)
       .venv/Scripts/python prepare.py --stories-only        (grouping by code only, no model calls, free)
 Writes output/<end>/stories.json and output/<end>/facts.json.
@@ -38,6 +38,13 @@ MACRO = re.compile(r"\b(fed|fomc|federal reserve|ecb|ezb|boj|boe|boc|snb|rba|rbn
                    re.I)
 MACRO_TOPICS = {"central banks and macro", "currencies"}
 ARTICLES_PER_STORY = 4  # newest article per outlet, at most this many, sent to the model
+
+
+def last_full_day(articles):
+    """The newest day with at least 10 % of the articles of the busiest day: a download taken in the morning holds a
+    few articles of that day (15 on 19 Nov in the event data, against 190 on the 17th), which is not a news day."""
+    per_day = Counter(a["date"][:10] for a in articles.values())
+    return max(d for d, n in per_day.items() if n >= 0.1 * max(per_day.values()))
 
 
 def must_have(story):
@@ -98,7 +105,7 @@ def main():
     args = ap.parse_args()
 
     articles = load_articles(data=args.data)
-    args.end = args.end or max(a["date"][:10] for a in articles.values())
+    args.end = args.end or last_full_day(articles)
     args.start = args.start or (datetime.fromisoformat(args.end) - timedelta(days=WINDOW_DAYS - 1)).date().isoformat()
     out = Path(args.out) if args.out else Path("output") / args.end
     out.mkdir(parents=True, exist_ok=True)

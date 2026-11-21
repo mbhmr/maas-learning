@@ -3,8 +3,7 @@
 Every briefing.json keeps the lines the checker blocked and why. learn() counts those reasons over earlier
 briefings, keeps the ones the writer can avoid (not "over the requested length": that is the length cut, not a
 writing mistake), and stores the top ones with two real blocked lines each in output/lessons.json.
-prompt_block() turns that file into a short section at the END of the writer's prompt (the start stays the same,
-so the provider's prompt cache still matches).
+prompt_block() turns that file into a short section at the END of the writer's prompt.
 
     .venv/Scripts/python -m src.lessons output/2026-11-18 output/pregen/2026-11-18-flex    learn from these folders
 

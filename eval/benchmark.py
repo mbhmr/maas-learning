@@ -6,15 +6,19 @@
 
 Checks per briefing (a briefing passes a check only if every line passes it):
   sourced       every news line (claim, context) has a source with a link and a quote
-  figures       every figure a claim speaks is in one of its quotes (own number reading, not the pipeline's)
+  figures       every figure a claim speaks, scale word included, is in one of its quotes, each quote read in its
+                own language (the pipeline's number reader, but none of its allowances: a source year counts
+                only as part of a date, "October 2026")
+  verbatim      every quote stands word for word in the article it links to (needs data/)
   dates         every date a line speaks ("18 November") is the date of one of its sources or in a quote
   disclosure    the AI-voice line and the "not investment advice" line are there
   no_advice     no buy/sell/should-invest words in any spoken line
-  language      every line with enough function words reads as the listener's language
-  length        spoken length within 25 % of the request (audio timing if there is audio, else words / rate)
+  language      every line whose function words point to one language reads as the listener's language
+  length        spoken length within 25 % of the request (audio timing if there is audio, else words / the
+                pipeline's own speaking rate, so without audio it only checks the word budget)
   audio         the speech-recognition re-check heard every figure as written (briefings with audio only)
-  must_hear     the briefing speaks the most important story of the day it can: the highest-ranked must-hear
-                story (central banks, macro, or two or more outlets) among the stories its listener was offered
+  must_hear     the highest-ranked must-hear story of the day (central banks, macro, or two or more outlets; among
+                the stories with facts) whose topic one of the spoken stories shares is spoken too
   fit           (--fit) a small model rates how well the spoken stories fit the listener description, 1 to 5;
                 passes at 4 or 5
 A check that does not apply (no audio) counts as not applicable, not as passed.
@@ -39,9 +43,9 @@ DATE = re.compile(r"\b(\d{1,2})\.?\s+(" + "|".join(MONTHS) + r")\b|\b("
 DAY_FIRST = re.compile(r"\b(\d{1,2})\.?\s+(" + "|".join(MONTHS) + r")\b", re.I)  # de, nl: "im November 5 Prozent"
 SCALES = {1e3, 1e6, 1e9, 1e12}
 # words that exist in two of the languages ("in", "is") are left out
-STOP = {"en": {"the", "and", "of", "to", "for", "that", "with", "on", "its", "was", "has", "are", "your"},
+STOP = {"en": {"the", "and", "of", "to", "for", "that", "with", "its", "has", "are", "your"},
         "de": {"der", "das", "und", "ist", "mit", "für", "auf", "von", "den", "dem", "nicht", "sich", "dein"},
-        "nl": {"de", "het", "een", "en", "van", "met", "voor", "op", "dat", "niet", "zijn", "je", "naar"}}
+        "nl": {"de", "het", "een", "en", "van", "met", "voor", "op", "dat", "niet", "zijn", "naar"}}
 # Advice is a sentence telling the listener what to do, not a word: "verkopen" is also Dutch for "sales", "sell-off"
 # and "buy rating" are news. So: the listener as the one who buys, sells or invests, or an imperative to do so.
 ADVICE = re.compile(r"\b(you (should|could|might want to|may want to|need to) (buy|sell|invest|hold|get in)|"
@@ -79,27 +83,50 @@ def strip_dates(text, lang="en"):
     return (DATE if lang == "en" else DAY_FIRST).sub(" ", text)
 
 
+def scaled(found):
+    """Add every figure times every scale word of the same text: "351K barrels" is {351, 1000, 351000}, so it matches
+    "351.000 Barrel"; a wrong scale still fails ("1,5 Millionen" has 1.5e6, "$1.5 billion" only 1.5e9)."""
+    return found | {x * k for x in found if x not in SCALES for k in found & SCALES}
+
+
 def line_figures(text, lang):
-    return {x for x in numbers(strip_dates(text, lang), lang) if x not in SCALES}
+    return numbers(strip_dates(text, lang), lang)  # each must be in the quotes' set, which carries the products
 
 
-def quote_figures(quotes):
-    """A quote may be English or the source's own language: read it both ways, and allow the scale-free form
-    ("1.5 trillion" spoken as "1,5 Billionen" is 1.5 and 1e12 on both sides)."""
+def source_language(source):
+    """The language a quote is written in: the briefing keeps the publisher ("Invezz - German"), not the language."""
+    pub = source.get("publisher") or ""
+    return source.get("language") or ("de" if "German" in pub else "nl" if "Dutch" in pub else "en")
+
+
+def quote_figures(sources):
+    """Every figure of the quotes, each read in its source's own language, scale words included ("$1.5 billion"
+    is 1.5 and 1e9, so "1,5 Millionen" fails on the scale)."""
     found = set()
-    for q in quotes:
-        found |= numbers(q, "en") | numbers(q, "de")
-    return {x for x in found if x not in SCALES}
+    for s in sources:
+        found |= scaled(numbers(s["quote"], source_language(s)))
+    return found
+
+
+def year_dates(text, years):
+    """A source's year said as part of a date ("October 2026", "18 November 2026") is a date, not a figure."""
+    return re.sub(r"\b(" + "|".join(MONTHS) + r")\s+(\d{4})\b",
+                  lambda m: m.group(1) if float(m.group(2)) in years else m.group(0), text, flags=re.I)
+
+
+def norm(text):
+    return re.sub(r"\s+", " ", re.sub(r"[‘’´`]", "'", re.sub(r"[“”„]", '"', text))).strip().lower()
 
 
 def language_of(text):
+    text = re.sub(r"\bThe(?= [A-Z])", " ", text)  # "The Gentlemen", "The Wall Street Journal" are names
     words = re.findall(r"[a-zäöüß]+", text.lower())
     hits = {lang: sum(w in stop for w in words) for lang, stop in STOP.items()}
     best = max(hits, key=hits.get)
-    return best if hits[best] >= 2 and list(hits.values()).count(hits[best]) == 1 else None
+    return best if hits[best] >= 1 and list(hits.values()).count(hits[best]) == 1 else None
 
 
-def check(briefing, stories=None):
+def check(briefing, stories=None, articles=None):
     """{check: (passed True/False/None, [problems])} for one briefing dict."""
     lang = briefing["profile"]["language"]
     claims = [c for c in briefing["claims"] if c.get("text")]
@@ -113,11 +140,16 @@ def check(briefing, stories=None):
     for c in news:
         if c["kind"] != "claim":
             continue
-        years = {float(s["date"][:4]) for s in c["sources"] if s.get("date")}  # "October 2026" is a date
-        missing = line_figures(c["text"], lang) - quote_figures([s["quote"] for s in c["sources"]]) - years
+        years = {float(s["date"][:4]) for s in c["sources"] if s.get("date")}
+        missing = line_figures(year_dates(c["text"], years), lang) - quote_figures(c["sources"])
         if missing:
             bad.append(f"{sorted(missing)} in: {c['text']}")
     res["figures"] = (not bad, bad)
+
+    if articles is not None:  # the quote itself must stand word for word in the article it links to
+        bad = [f"{s['articleId']}: {s['quote'][:80]}" for c in news for s in c["sources"]
+               if s.get("articleId") in articles and norm(s["quote"]) not in articles[s["articleId"]]]
+        res["verbatim"] = (not bad, bad)
 
     bad = []
     for c in news:
@@ -200,13 +232,23 @@ def fit(briefing):
     return (out["score"] >= 4, [f"{out['score']}/5: {out['why']}"])
 
 
+def article_texts():
+    """{article id: normalised text} from data/, or None when the dataset is not on this machine."""
+    try:
+        from src.articles import load_articles
+        return {i: norm(a["text"]) for i, a in load_articles().items()}
+    except FileNotFoundError:
+        return None
+
+
 def run(paths, stories, with_fit=False):
     rows = []
+    articles = article_texts()
     for path in paths:
         b = json.loads(Path(path).read_text(encoding="utf-8"))
         if "profile" not in b or "claims" not in b:
             continue
-        res = check(b, stories)
+        res = check(b, stories, articles)
         if with_fit:
             res["fit"] = fit(b)
         rows.append({"path": str(path), "name": b["profile"].get("name"), "checks": res})

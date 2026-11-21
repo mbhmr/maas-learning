@@ -1,6 +1,7 @@
 """The only place that talks to OpenAI. Every call is logged to output/usage.jsonl."""
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -36,10 +37,13 @@ def _get_client():
     return _client
 
 
+_log_lock = threading.Lock()  # 8 threads appending at once broke 3 lines on 21.11. (pregenerate, ab_lessons)
+
+
 def log_usage(entry):
     OUTPUT.mkdir(exist_ok=True)
     entry = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), **entry}
-    with (OUTPUT / "usage.jsonl").open("a", encoding="utf-8") as f:
+    with _log_lock, (OUTPUT / "usage.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
 
